@@ -2,6 +2,9 @@ import os
 import re
 
 opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineLICM", "RegCoalescer"]
+dim_option = [
+  ['topdown', 'bottomup', 'bidirectional'],
+]
 
 def get_kernel_path():
   tuner_path = os.path.dirname(os.path.abspath(__file__)) + "/../"

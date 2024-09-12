@@ -28,6 +28,13 @@ class KernelFlagsTuner(MeasurementInterface):
     self.stragegy_path = get_policy_path()
     self.line_number, content = get_line_number(self.stragegy_path, self.kernel_name)
     self.opt_flag = get_flag_dict(content.strip().split(',')[1:])
+    # to record if it's tested
+    self.option_record = {}
+    # for key in opt_dim:
+    key = "MIScheduler"
+    self.option_record[key] = {}
+    for option in dim_option[opt_dim.index(key)]:
+      self.option_record[key][option] = 0
     print("Kernel name: ", self.kernel_name)
     print("Line number: ", self.line_number)
     print("Content: ", content.strip())
@@ -40,8 +47,7 @@ class KernelFlagsTuner(MeasurementInterface):
     """
     manipulator = ConfigurationManipulator()
     manipulator.add_parameter(
-      EnumParameter(opt_dim[0],
-                    ['topdown', 'bottomup', 'bidirectional']))
+      EnumParameter(opt_dim[0], dim_option[0]))
     return manipulator
 
   def compile(self, cfg, id):
@@ -50,7 +56,7 @@ class KernelFlagsTuner(MeasurementInterface):
       """
       self.opt_flag["MIScheduler"] = cfg[opt_dim[0]]
       print("MIScheduler set to: ", cfg[opt_dim[0]])
-      change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]))
+      change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]) + "\n")
       build_dir = get_kernel_path() + "build/"
       cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
       cmake_res = self.call_program(cmake_cmd)
@@ -84,12 +90,18 @@ class KernelFlagsTuner(MeasurementInterface):
   
   def extra_convergence_criteria(self, result):
     for res in result:
-      print(res.input)
-      print(res.input_id)
-      print(res.input.data)
-    return False
+      self.option_record[opt_dim[0]][res.configuration.data[opt_dim[0]]] = 1
+    for key in self.option_record:
+      for option in self.option_record[key]:
+        if self.option_record[key][option] == 0:
+          return False
+    return True
   
-
+  def save_final_config(self, configuration):
+    """called at the end of tuning"""
+    print("Optimal compiling flag is:", configuration.data)
+    self.opt_flag["MIScheduler"] = configuration.data[opt_dim[0]]
+    change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]) + "\n")
 
 if __name__ == '__main__':
   args = parser.parse_args()
