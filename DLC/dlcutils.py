@@ -1,10 +1,21 @@
 import os
 import re
 
+class TuneRange:
+  def __init__(self, min_value, max_value, is_int=True):
+    self.min_value = min_value
+    self.max_value = max_value
+    self.is_int = is_int
+
 opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineLICM", "RegCoalescer"]
-dim_option = [
-  ['topdown', 'bottomup', 'bidirectional'],
-]
+dim_option = {
+  "MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
+  "PostRA-MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
+  "MachineSink" : ['pass', 'disable'],
+  "MachineLICM" : TuneRange(0, 1, False),
+  "RegCoalescer_0" : TuneRange(0, 200),
+  "RegCoalescer_1" : TuneRange(0, 512),
+}
 
 def get_kernel_path():
   tuner_path = os.path.dirname(os.path.abspath(__file__)) + "/../"

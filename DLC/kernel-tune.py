@@ -9,6 +9,7 @@ from __future__ import print_function
 import opentuner
 from opentuner import ConfigurationManipulator
 from opentuner import IntegerParameter
+from opentuner import FloatParameter
 from opentuner import MeasurementInterface
 from opentuner import EnumParameter
 from opentuner import Result
@@ -30,11 +31,13 @@ class KernelFlagsTuner(MeasurementInterface):
     self.opt_flag = get_flag_dict(content.strip().split(',')[1:])
     # to record if it's tested
     self.option_record = {}
-    # for key in opt_dim:
-    key = "MIScheduler"
-    self.option_record[key] = {}
-    for option in dim_option[opt_dim.index(key)]:
-      self.option_record[key][option] = 0
+    for key in dim_option.keys():
+      self.option_record[key] = {}
+      if isinstance(dim_option[key], TuneRange):
+        self.option_record[key] = []
+      else:
+        for option in dim_option[key]:
+          self.option_record[key][option] = 0
     print("Kernel name: ", self.kernel_name)
     print("Line number: ", self.line_number)
     print("Content: ", content.strip())
@@ -50,17 +53,27 @@ class KernelFlagsTuner(MeasurementInterface):
     ConfigurationManipulator
     """
     manipulator = ConfigurationManipulator()
-    manipulator.add_parameter(
-      EnumParameter(opt_dim[0], dim_option[0]))
+    for key in dim_option.keys():
+      if isinstance(dim_option[key], TuneRange):
+        if dim_option[key].is_int:
+          manipulator.add_parameter(
+            IntegerParameter(key, dim_option[key].min_value, dim_option[key].max_value))
+        else:
+          manipulator.add_parameter(
+            FloatParameter(key, dim_option[key].min_value, dim_option[key].max_value))
+      else:              
+        manipulator.add_parameter(
+          EnumParameter(key, dim_option[key]))
     return manipulator
 
   def compile(self, cfg, id):
       """
       Compile a given configuration in parallel
       """
-      self.opt_flag["MIScheduler"] = cfg[opt_dim[0]]
-      print("MIScheduler set to: ", cfg[opt_dim[0]])
-      change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]) + "\n")
+      # print("Compiling with configuration: ", cfg)
+      self.set_opt_flag(cfg)
+      # print("MIScheduler set to: ", cfg[opt_dim[0]])
+      change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
       build_dir = get_kernel_path() + "build/"
       cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
       cmake_res = self.call_program(cmake_cmd)
@@ -117,8 +130,31 @@ class KernelFlagsTuner(MeasurementInterface):
       print("Optimal compiling flag is:", configuration.data)
       self.opt_flag["MIScheduler"] = configuration.data[opt_dim[0]]
     change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]) + "\n")
+    
+  def set_opt_flag(self, configuration):
+    for key in configuration:
+      if key != "MachineLICM" and key != "RegCoalescer_0" and key != "RegCoalescer_1":
+        self.opt_flag[key] = configuration[key]
+    licm_value = configuration["MachineLICM"]
+    if licm_value == 0:
+      self.opt_flag["MachineLICM"] = "0.0"
+    elif licm_value == 1:
+      self.opt_flag["MachineLICM"] = ""
+    else:
+      self.opt_flag["MachineLICM"] = licm_value
+      
+    reg_coalescer_0 = configuration["RegCoalescer_0"]
+    reg_coalescer_1 = configuration["RegCoalescer_1"]
+    if reg_coalescer_0 == 0 or reg_coalescer_1 == 0:
+      self.opt_flag["RegCoalescer"] = "no"
+    else:
+      self.opt_flag["RegCoalescer"] = str(reg_coalescer_0) + "_and_" + str(reg_coalescer_1)
+    print("Optimization flags set to: \n", self.opt_flag)
+
 
 if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
+  args.test_limit = 12
+  args.stop_after = 3 * 60 # 3min
   KernelFlagsTuner.main(args)
