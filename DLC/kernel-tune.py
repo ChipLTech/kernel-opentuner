@@ -39,6 +39,10 @@ class KernelFlagsTuner(MeasurementInterface):
     print("Line number: ", self.line_number)
     print("Content: ", content.strip())
     print("Optimization flags: ", self.opt_flag)
+    # compare to current setting
+    self.old_flag = self.opt_flag.copy()
+    self.old_performance = 0
+    self.old_better = True
 
   def manipulator(self):
     """
@@ -65,18 +69,19 @@ class KernelFlagsTuner(MeasurementInterface):
       ninja_cmd = 'ninja -C {0} '.format(build_dir)
       ninja_res = self.call_program(ninja_cmd)
       print("Build finished")
+      assert ninja_res['returncode'] == 0
       return ninja_res
 
   def run_precompiled(self, desired_result, input, limit, compile_result, id):
     """
     Run a compile_result from compile() sequentially and return performance
     """
-    assert compile_result['returncode'] == 0
-
     run_cmd = get_kernel_path() + "build/syntests/syntests -t " + self.kernel_name
     run_result = self.call_program(run_cmd)
     cycle, succ = diagnose_run_result(run_result['stderr'].decode().split('\n'))
     assert succ
+    if self.old_better and cycle < self.old_performance:
+      self.old_better = False
     return Result(time = cycle)
 
   def compile_and_run(self, desired_result, input, limit):
@@ -97,12 +102,23 @@ class KernelFlagsTuner(MeasurementInterface):
           return False
     return True
   
+  def pre_process(self):
+    # we need to record the current perfmance
+    if self.old_performance == 0:
+      self.old_performance = self.run_precompiled(Result(time = 0), None, 0, 0, 0).time
+      print("Number of cycles in current setting: ", self.old_performance)
+  
   def save_final_config(self, configuration):
     """called at the end of tuning"""
-    print("Optimal compiling flag is:", configuration.data)
-    self.opt_flag["MIScheduler"] = configuration.data[opt_dim[0]]
+    if self.old_better:
+      print("The original setting is better")
+      self.opt_flag = self.old_flag.copy()
+    else:
+      print("Optimal compiling flag is:", configuration.data)
+      self.opt_flag["MIScheduler"] = configuration.data[opt_dim[0]]
     change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]) + "\n")
 
 if __name__ == '__main__':
   args = parser.parse_args()
+  args.parallelism = 1
   KernelFlagsTuner.main(args)
