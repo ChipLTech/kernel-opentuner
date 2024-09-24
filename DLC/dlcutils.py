@@ -52,12 +52,12 @@ def change_policy_file(line_number, new_line):
 def diagnose_run_result(lines):
   test_pass = True
   cycle = 0
+  result_lines = ""
   for line in lines:
     if "fail" in line:
       test_pass = False
     if "xys0" in line and "xys1" in line:
-      print(line)
+      result_lines += line + "\n"
       cycle += int(re.findall(r"xys0: \d+", line)[0].split()[-1])
       cycle += int(re.findall(r"xys1: \d+", line)[0].split()[-1])
-  print("Total cycle: ", cycle)
-  return cycle, test_pass
+  return cycle, test_pass, result_lines
