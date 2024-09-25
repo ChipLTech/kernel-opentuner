@@ -61,3 +61,12 @@ def diagnose_run_result(lines):
       cycle += int(re.findall(r"xys0: \d+", line)[0].split()[-1])
       cycle += int(re.findall(r"xys1: \d+", line)[0].split()[-1])
   return cycle, test_pass, result_lines
+
+def get_most_recent_log_dir(log_path):
+  log_dir = log_path + "/logs/"
+  log_dirs = [log_dir + d for d in os.listdir(log_dir) if os.path.isdir(log_dir + d)]
+  if not len(log_dirs):
+    return ""
+  else:
+    log_dirs.sort(key=lambda x: os.path.getmtime(x))
+    return log_dirs[-1]

@@ -219,6 +219,7 @@ class MultiKernelTuner():
     self.thread_pool = ThreadPool(len(self.kernel_names))
     self.kernel_params = []
     self.db_path = pargs[0].database
+    print(len(self.kernel_names), "kernels to tune")
       
     for i in range(len(self.kernel_names)):
       kernel_name = self.kernel_names[i]
