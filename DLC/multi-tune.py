@@ -43,6 +43,16 @@ class KernelFlagsTuner(MeasurementInterface):
     self.is_executor = pargs[0].is_executor
     self.stragegy_path = get_policy_path()
     self.line_number, content = get_line_number(self.stragegy_path, self.kernel_name)
+    if self.line_number == -1:
+      compile_ready_count_lock.acquire()
+      self.line_number = len(open(self.stragegy_path, 'r').readlines())
+      content = self.kernel_name + "," + get_default_policy() + "\n"
+      print("New kernel found, add to the end of the file")
+      print("line number: ", self.line_number)
+      print("content: ", content)
+      with open(self.stragegy_path, 'a') as file:
+        file.write(content)
+      compile_ready_count_lock.release()
     self.opt_flag = get_flag_dict(content.strip().split(',')[1:])
     # to record if it's tested
     self.option_record = {}

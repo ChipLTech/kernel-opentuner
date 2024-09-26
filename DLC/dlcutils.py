@@ -28,6 +28,9 @@ def get_policy_path():
   kernel_dir = get_kernel_path()
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
 
+def get_default_policy():
+  return ",,,1.0,all"
+
 def get_line_number(file_path, kernel_name):
   with open(file_path, 'r') as file:
     for i, line in enumerate(file):

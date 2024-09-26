@@ -125,9 +125,13 @@ if __name__ == '__main__':
   for file in dep_files:
     if have_file_changed(dep_file_path + "/" + file, changed_files):
       candidate_kernel.append(file.split('.')[0])
-  print(candidate_kernel)
-  kernel_param = "--kernel=\"" + ",".join(candidate_kernel) + "\""
+  print(candidate_kernel, "before filtering")
+  available_tests = subprocess.check_output([get_kernel_path() + '/build/syntests/syntests', '-l']).decode().splitlines()
+  candidate_kernel = [kernel for kernel in candidate_kernel if kernel in available_tests]
+  print(candidate_kernel, "after filtering")
+  kernel_param = "--kernel=" + ",".join(candidate_kernel)
   database_param = "--database=/wkspc/lanhu/tunerDB"
   print("*********** Start to tune ***********")
+  print("kernel_param:", kernel_param)
   subprocess.run(['python3', cur_dir + '/multi-tune.py', kernel_param, database_param])
   subprocess.run(['cp', get_policy_path(), new_log_dir]) 
