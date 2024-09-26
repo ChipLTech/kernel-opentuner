@@ -2,6 +2,7 @@ from dlcutils import *
 import time
 import subprocess
 import os
+import random
 
 log_path = "/wkspc/lanhu/autotune"
 
@@ -34,35 +35,38 @@ def get_commit_hash(log_path):
     print("No commit hash found in the log directory")
     return ""
   
-def parse_dependency_file(dep_file):
-  dependencies = {}
-  with open(dep_file, 'r') as f:
-      for line in f:
-          line = line.strip()
-          if not line:  # Skip empty lines
-              continue
-          
-          # Check if line contains a colon
-          if ':' in line:
-            target, deps_str = line.split(':', 1)
-            target = target.strip()
-            deps = [dep.strip() for dep in deps_str.split() if 'dlc_kernels' in dep]
-            # dependencies[target] = deps
-          elif 'dlc_kernels' in line:
-            file_name = line.split()[0]
-            deps.append(file_name)
-  dependencies[target] = deps
-  return dependencies
-  
-def have_file_changed(dep_file, changed_files):
-  deps = parse_dependency_file(dep_file)
-  for target in deps:
-    deps[target] = [dep.split('/')[-1] for dep in deps[target]]
-    # print(deps)
-    for dep in deps[target]:
-      if dep in changed_files:
-        return True
-  return False
+def parse_dependency(dep_info):
+  kernel_to_dep = {}
+  dep_to_kernel = {}
+  for line in dep_info:
+      line = line.strip()
+      if not line:  # Skip empty lines
+          continue
+      
+      # Check if line contains a colon
+      if ':' in line and 'dlc_src' in line:
+        target, _ = line.split(':', 1)
+        target = target.strip().split('/')[-1]
+        target = target.split('_dlc')[0]
+        kernel_to_dep[target] = []
+      elif 'dlc_kernels' in line:
+        file_name = line.split()[0].strip().split('/')[-1]
+        kernel_to_dep[target].append(file_name)
+
+  # remove all the _xys1 files
+  duplicates = []
+  for target in kernel_to_dep:
+    if "_xys1" in target:
+      duplicates.append(target)
+  for target in duplicates:
+    kernel_to_dep.pop(target)
+
+  for target in kernel_to_dep:
+    for dep in kernel_to_dep[target]:
+      if dep not in dep_to_kernel:
+        dep_to_kernel[dep] = []
+      dep_to_kernel[dep].append(target)
+  return kernel_to_dep, dep_to_kernel
   
 if __name__ == '__main__':
   cur_dir = os.getcwd()
@@ -108,30 +112,35 @@ if __name__ == '__main__':
   build_dir = get_kernel_path() + "build/"
   # cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
   # subprocess.run(cmake_cmd.split())
-  # ninja_cmd = 'ninja -C {0} syntests -d keepdepfile'.format(build_dir)
+  # ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
   # subprocess.run(ninja_cmd.split())
   # subprocess.run(['ninja', '-C', build_dir, 'install'])
   
-  # copy all the dependency files to the log directory
-  dep_file_path = new_log_dir + "/depfiles"
-  subprocess.run(['mkdir', dep_file_path])
-  dep_files = subprocess.check_output(['ls', build_dir + '/dlc_src/']).decode().splitlines()
-  dep_files = [build_dir + '/dlc_src/' + file for file in dep_files if file.endswith('.d')]
-  subprocess.run(['cp', *dep_files ,dep_file_path])
+  # get the dependency info
+  subprocess.run(['touch', new_log_dir + "/depfiles.txt"])
+  dep_info = subprocess.check_output(['ninja', '-C', build_dir, '-t', 'deps'], stderr=subprocess.STDOUT).decode()
+  with open(new_log_dir + "/depfiles.txt", 'w') as f:
+    f.write(dep_info)
+  kernel_to_dep, dep_to_kernel = parse_dependency(dep_info.splitlines())
   
   # take the intersection of the changed files and the dependency files
   candidate_kernel = []
-  dep_files = os.listdir(dep_file_path)
-  for file in dep_files:
-    if have_file_changed(dep_file_path + "/" + file, changed_files):
-      candidate_kernel.append(file.split('.')[0])
+  for file in changed_files:
+    for kernel in dep_to_kernel[file]:
+      if kernel not in candidate_kernel:
+        candidate_kernel.append(kernel)
+
   print(candidate_kernel, "before filtering")
   available_tests = subprocess.check_output([get_kernel_path() + '/build/syntests/syntests', '-l']).decode().splitlines()
   candidate_kernel = [kernel for kernel in candidate_kernel if kernel in available_tests]
   print(candidate_kernel, "after filtering")
+  if len(candidate_kernel) < 10:
+    print("Randomly pick kernels to tune")
+    ramdom_picked = random.sample(available_tests, 10 - len(candidate_kernel))
+    candidate_kernel.extend(ramdom_picked)
+    print(candidate_kernel, "after random picking")
   kernel_param = "--kernel=" + ",".join(candidate_kernel)
   database_param = "--database=/wkspc/lanhu/tunerDB"
   print("*********** Start to tune ***********")
-  print("kernel_param:", kernel_param)
   subprocess.run(['python3', cur_dir + '/multi-tune.py', kernel_param, database_param])
   subprocess.run(['cp', get_policy_path(), new_log_dir]) 
