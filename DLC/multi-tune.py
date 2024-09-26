@@ -41,15 +41,18 @@ class KernelFlagsTuner(MeasurementInterface):
     self.kernel_name = pargs[0].kernel
     self.total_kernel = pargs[0].total_kernel
     self.is_executor = pargs[0].is_executor
+    self.log_path = pargs[0].log_path
+    self.best_res = pargs[0].best_res
+    self.best_cycle = 2 ** 32
     self.stragegy_path = get_policy_path()
     self.line_number, content = get_line_number(self.stragegy_path, self.kernel_name)
+    info = ""
     if self.line_number == -1:
       compile_ready_count_lock.acquire()
       self.line_number = len(open(self.stragegy_path, 'r').readlines())
       content = self.kernel_name + "," + get_default_policy() + "\n"
-      print("New kernel found, add to the end of the file")
-      print("line number: ", self.line_number)
-      print("content: ", content)
+      info += "New kernel found, add to the end of the file\n"
+      info += "line number: " + str(self.line_number) + "\n"
       with open(self.stragegy_path, 'a') as file:
         file.write(content)
       compile_ready_count_lock.release()
@@ -63,9 +66,10 @@ class KernelFlagsTuner(MeasurementInterface):
       else:
         for option in dim_option[key]:
           self.option_record[key][option] = 0
-    print("Kernel name: ", self.kernel_name)
-    print("Line number: ", self.line_number)
-    print("Optimization flags: ", self.opt_flag)
+    info += "Kernel name: " + self.kernel_name + "\n"
+    info += "Line number: " + str(self.line_number) + "\n"
+    info += "Optimization flags: " + str(self.opt_flag) + "\n"
+    print(info)
     # compare to current setting
     self.old_flag = self.opt_flag.copy()
     self.old_performance = 0
@@ -137,11 +141,21 @@ class KernelFlagsTuner(MeasurementInterface):
     assert succ
     if self.old_better and cycle < self.old_performance:
       self.old_better = False
+    if cycle < self.best_cycle:
+      self.best_cycle = cycle
     if result_lines:
       print(result_lines)
     else:
       print(run_result['stderr'].decode())
       cycle = 2 ** 32
+    print(self.get_prefix(), "Number of cycles: ", cycle)
+    
+    # keep another record in log file
+    with open(self.log_path, 'a') as f:
+      f.write(self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "," + str(cycle) + "\n")
+      f.write(result_lines)
+      f.write(self.get_prefix() + "Total run: " + str(cycle) + " cycles\n")
+
     return Result(time = cycle)
 
   def compile_and_run(self, desired_result, input, limit):
@@ -167,7 +181,7 @@ class KernelFlagsTuner(MeasurementInterface):
     if self.old_performance == 0:
       print(self.get_prefix() + "Testing current setting")
       self.old_performance = self.run_precompiled(Result(time = 0), None, 0, 0, 0).time
-      print(self.get_prefix() + "Number of cycles in current setting: ", self.old_performance)
+      self.best_cycle = self.old_performance
       if self.is_executor:
         while test_ready_count.value != self.total_kernel:
           pass
@@ -192,12 +206,22 @@ class KernelFlagsTuner(MeasurementInterface):
   def save_final_config(self, configuration):
     """called at the end of tuning"""
     if self.old_better:
-      print("The original setting is better")
+      print(self.get_prefix(), "The original setting is better")
       self.opt_flag = self.old_flag.copy()
     else:
-      print("Optimal compiling flag is:", configuration.data)
-      self.opt_flag["MIScheduler"] = configuration.data[opt_dim[0]]
+      print(self.get_prefix(), "Optimal compiling flag is:", configuration.data)
+      for key in configuration.data:
+        self.opt_flag[key] = configuration.data[key]
+    with open(self.best_res, 'w') as f:
+      if self.old_better:
+        f.write("Original setting is better\n")
+      else:
+        f.write("Find a better setting\n")
+      f.write("The best setting is: " + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
+      f.write("The performance is: " + str(self.best_cycle) + "\n")
+    compile_ready_count_lock.acquire()
     change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
+    compile_ready_count_lock.release()
     
   def set_opt_flag(self, configuration):
     for key in configuration:
@@ -236,12 +260,16 @@ class MultiKernelTuner():
       single_parg = copy.copy(pargs[0])
       single_parg.kernel = kernel_name
       single_parg.database = self.db_path + "/" + kernel_name + ".db"
+      single_parg.log_path = self.db_path + "/" + kernel_name + "_log.txt"
+      single_parg.best_res = self.db_path + "/" + kernel_name + "_best.txt"
       single_parg.total_kernel = len(self.kernel_names)
       if i == 0:
         single_parg.is_executor = True
       else:
         single_parg.is_executor = False
       os.system("touch " + single_parg.database)
+      os.system("touch " + single_parg.log_path)
+      os.system("touch " + single_parg.best_res)
       self.kernel_params.append(single_parg)
       
   def main(self):

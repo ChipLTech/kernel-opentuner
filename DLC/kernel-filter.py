@@ -110,10 +110,10 @@ if __name__ == '__main__':
     
   # build the dependency files
   build_dir = get_kernel_path() + "build/"
-  # cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
-  # subprocess.run(cmake_cmd.split())
-  # ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
-  # subprocess.run(ninja_cmd.split())
+  cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
+  subprocess.run(cmake_cmd.split())
+  ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
+  subprocess.run(ninja_cmd.split())
   # subprocess.run(['ninja', '-C', build_dir, 'install'])
   
   # get the dependency info
@@ -140,7 +140,8 @@ if __name__ == '__main__':
     candidate_kernel.extend(ramdom_picked)
     print(candidate_kernel, "after random picking")
   kernel_param = "--kernel=" + ",".join(candidate_kernel)
-  database_param = "--database=/wkspc/lanhu/tunerDB"
+  subprocess.run(['mkdir', '-p', new_log_dir + "/tunerDB"])
+  database_param = "--database=" + new_log_dir + "/tunerDB"
   print("*********** Start to tune ***********")
   subprocess.run(['python3', cur_dir + '/multi-tune.py', kernel_param, database_param])
   subprocess.run(['cp', get_policy_path(), new_log_dir]) 
