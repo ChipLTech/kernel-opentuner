@@ -1,5 +1,7 @@
 import os
 import re
+from llamatool import *
+import yaml
 
 class TuneRange:
   def __init__(self, min_value, max_value, is_int=True):
@@ -65,11 +67,69 @@ def diagnose_run_result(lines):
       cycle += int(re.findall(r"xys1: \d+", line)[0].split()[-1])
   return cycle, test_pass, result_lines
 
-def get_most_recent_log_dir(log_path):
-  log_dir = log_path + "/logs/"
+def get_most_recent_log_dir(log_dir):
   log_dirs = [log_dir + d for d in os.listdir(log_dir) if os.path.isdir(log_dir + d)]
   if not len(log_dirs):
     return ""
   else:
     log_dirs.sort(key=lambda x: os.path.getmtime(x))
     return log_dirs[-1]
+  
+def diagnose_llama_result(text):
+  kernel_launches_name_body = [get_kernel_info(remove_ansi(kernel)) for kernel in get_kernel_launches(text)]
+  kernel_names = [x[0] for x in kernel_launches_name_body]
+  kernel_cycles = get_kernel_cycles(text)
+  total_cycles = sum(kernel_cycles) + 1
+
+  if len(kernel_cycles) != len(kernel_names):
+      print('Warning: kernel names and cycles length mismatch')
+      print('kernel length:', len(kernel_names))
+      print('cycles length:', len(kernel_cycles))
+      kernel_cycles = kernel_cycles[:len(kernel_names)]
+      while len(kernel_cycles) < len(kernel_names):
+          kernel_cycles.append(0)
+
+  ############################################################################################################################
+  kernel_name_cycles = {}
+  for name, cycle in zip(kernel_names, kernel_cycles):
+      if name not in kernel_name_cycles:
+          kernel_name_cycles[name] = 0
+      kernel_name_cycles[name] += int(cycle)
+      # kernel_name_cycles[name][1] += 1
+  return get_kernel_to_cycle(kernel_name_cycles, get_register_name_to_kernel()), total_cycles
+
+def get_register_name_to_kernel():
+  with open(get_kernel_path() + 'dlc_src/kernel_info.yaml') as f:
+    config = yaml.safe_load(f)
+  name_to_kernel = {}
+  for item in config:
+    if 'name' in item and 'src' in item:
+      src = item['src']
+      if isinstance(src, list):
+        src = src[0].split('.')[0]
+      name_to_kernel[item['name']] = src
+  return name_to_kernel
+
+def get_kernel_to_cycle(res, name_to_kernel):
+  kernel_to_cycle = {}
+  for item in res.keys():
+    if item not in name_to_kernel.keys():
+      kernel = item.split('custom_')[1]
+    else:
+      kernel = name_to_kernel[item]
+    if kernel in kernel_to_cycle.keys():
+      kernel_to_cycle[kernel] += res[item]
+    else:
+      kernel_to_cycle[kernel] = res[item]
+  return kernel_to_cycle
+
+def get_llama_path():
+  return "/root/llama2-sft/"
+
+def get_llama_kernels():
+  return ['embedding_dense', 'arange_int64', 'eq_Scalar_out_int64', 'all_all_out', 'FusedRMSNorm', 'matmul_t', 'dropout_dlc_random',\
+    'foreach_mul_scalar', '_foreach_add_tensor', 'permute', 'rotary_pos_emb_f32', 'FusedRoPE', 'scaled_dot_product_efficient_attention',\
+    'silu', 'foreach_mul', 'slice', 'log_softmax', 'full', 'reshape_offset_int64', 'nll_loss', 'foreach_div_scalar', 'nll_loss_backward',\
+    'log_softmax_backward', 'copy_memory', 'slice_backward', 'scale_masked', 'FusedRMSNormBackward', 'silu_backward', \
+    'scaled_dot_product_efficient_attention_backward', 'FusedRoPEBack', 'ne_Tensor_out', 'abs', 'eq_Scalar_out', 'linalg_vector_norm', \
+    'copy_stride_smem', 'cat_tensorlist', 'foreach_add_scalar', 'reciprocal', 'clamp_out_scalar', 'fused_adamw', 'mean_dim']
