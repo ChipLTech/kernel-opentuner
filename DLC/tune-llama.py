@@ -64,6 +64,7 @@ class KernelFlagsTuner(MeasurementInterface):
         file.write(content)
       compile_ready_count_lock.release()
     self.opt_flag = get_flag_dict(content.strip().split(',')[1:])
+    self.best_opt_flag = self.opt_flag.copy()
     # to record if it's tested
     self.option_record = {}
     for key in dim_option.keys():
@@ -223,6 +224,24 @@ class KernelFlagsTuner(MeasurementInterface):
       self.old_performance = self.run_precompiled(Result(time = 0), None, 0, 0, 0).time
       self.best_cycle = self.old_performance
       
+  def post_process(self):
+    # every_iteraton, we need to save the best result
+    compile_ready_count_lock.acquire()
+    change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.best_opt_flag[key]) for key in opt_dim]) + "\n")
+    compile_ready_count.value += 1
+    compile_ready_count_lock.release()
+    
+    if self.is_executor:
+      while compile_ready_count.value != self.total_kernel:
+        pass
+      subprocess.call("cp " + get_policy_path() + " " + self.log_root +  "strategy_iter" + str(iteration_count.value - 1) + ".csv", shell=True)
+      compile_ready_count_lock.acquire()
+      compile_ready_count.value = 0
+      compile_ready_count_lock.release()
+    else:
+      while compile_ready_count.value != 0:
+        pass
+      
   def execute(cmd):
     popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
     for stdout_line in iter(popen.stdout.readline, ""):
@@ -281,6 +300,7 @@ class KernelFlagsTuner(MeasurementInterface):
       self.old_better = False
     if cycle < self.best_cycle:
       self.best_cycle = cycle
+      self.best_opt_flag = self.opt_flag.copy()
     print(self.get_prefix(), "Number of cycles: ", cycle)
     
     # keep another record in log file
