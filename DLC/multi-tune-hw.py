@@ -143,7 +143,8 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count.value += 1
     print(self.get_prefix(), "Kernel run finished, total run: ", test_ready_count.value)
     test_ready_count_lock.release()
-    cycle, succ, result_lines = diagnose_run_result(run_result['stderr'].decode().split('\n'))
+    succ = diagnose_run_result(run_result['stderr'].decode().split('\n'))
+    cycle, result_lines = diagnose_run_result_cycle(run_result['stdout'].decode().split('\n'))
     assert succ
     cycle = self.handle_results(cycle, run_result, result_lines)
     return Result(time = cycle)

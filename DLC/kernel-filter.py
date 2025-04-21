@@ -5,7 +5,7 @@ import os
 import random
 import sys
 
-log_path = "/home/test/lanhu/autotune"
+log_path = "/wkspc/bainiu/autotune"
 
 def get_diff_files(last_commit, current_commit):
   # if last_commit == "":
@@ -24,7 +24,7 @@ def get_diff_files(last_commit, current_commit):
 def filter_kernel_files(changed_files):
   kernel_files = []
   for file in changed_files:
-    if file.startswith("dlc_kernels/"):
+    if file.startswith("dlc_kernels/") and (file.endswith(".cpp") or file.endswith(".c")):
       kernel_files.append(file)
   return kernel_files
 
@@ -45,14 +45,15 @@ def parse_dependency(dep_info):
           continue
       
       # Check if line contains a colon
-      if ':' in line and 'dlc_src' in line:
-        target, _ = line.split(':', 1)
-        target = target.strip().split('/')[-1]
-        target = target.split('_dlc')[0]
-        kernel_to_dep[target] = []
-      elif 'dlc_kernels' in line:
-        file_name = line.split()[0].strip().split('/')[-1]
-        kernel_to_dep[target].append(file_name)
+      if 'clang' in line:
+        target = line.split()
+        for part in target:
+            if part.endswith('.c') or part.endswith('.cpp'):
+                file_name = part.split('/')[-1]
+                break
+        target = file_name.split('.')[0]
+        # print("target:", target)
+        kernel_to_dep[target] = [file_name]
 
   # remove all the _xys1 files
   duplicates = []
@@ -125,7 +126,7 @@ if __name__ == '__main__':
     
     # get the dependency info
     subprocess.run(['touch', new_log_dir + "/depfiles.txt"])
-    dep_info = subprocess.check_output(['ninja', '-C', build_dir, '-t', 'deps'], stderr=subprocess.STDOUT).decode()
+    dep_info = subprocess.check_output(['ninja', '-C', build_dir, '-t', 'commands'], stderr=subprocess.STDOUT).decode()
     with open(new_log_dir + "/depfiles.txt", 'w') as f:
       f.write(dep_info)
     kernel_to_dep, dep_to_kernel = parse_dependency(dep_info.splitlines())
@@ -141,11 +142,11 @@ if __name__ == '__main__':
     available_tests = subprocess.check_output([get_kernel_path() + '/build/syntests/syntests', '-l']).decode().splitlines()
     candidate_kernel = [kernel for kernel in candidate_kernel if kernel in available_tests]
     print(candidate_kernel, "after filtering")
-    if len(candidate_kernel) < 10:
-      print("Randomly pick kernels to tune")
-      ramdom_picked = random.sample(available_tests, 10 - len(candidate_kernel))
-      candidate_kernel.extend(ramdom_picked)
-      print(candidate_kernel, "after random picking")
+    # if len(candidate_kernel) < 10:
+    #   print("Randomly pick kernels to tune")
+    #   ramdom_picked = random.sample(available_tests, 10 - len(candidate_kernel))
+    #   candidate_kernel.extend(ramdom_picked)
+    #   print(candidate_kernel, "after random picking")
     script = 'multi-tune-hw.py'
   else:
     candidate_kernel = get_llama_kernels()

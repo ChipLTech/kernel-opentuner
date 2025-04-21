@@ -91,7 +91,8 @@ class KernelFlagsTuner(MeasurementInterface):
     """
     run_cmd = get_kernel_path() + "build/syntests/syntests -t " + self.kernel_name
     run_result = self.call_program(run_cmd)
-    cycle, succ = diagnose_run_result(run_result['stderr'].decode().split('\n'))
+    succ = diagnose_run_result(run_result['stderr'].decode().split('\n'))
+    cycle, result_lines = diagnose_run_result_cycle(run_result['stdout'].decode().split('\n'))
     assert succ
     if self.old_better and cycle < self.old_performance:
       self.old_better = False

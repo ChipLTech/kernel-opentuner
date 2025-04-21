@@ -9,7 +9,7 @@ class TuneRange:
     self.max_value = max_value
     self.is_int = is_int
 
-opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineLICM", "RegCoalescer"]
+opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineLICM", "RegCoalescer", "rotate", "condcmp"]
 dim_option = {
   "MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
   "PostRA-MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
@@ -17,6 +17,8 @@ dim_option = {
   "MachineLICM" : TuneRange(0, 1, False),
   "RegCoalescer_0" : TuneRange(0, 200),
   "RegCoalescer_1" : TuneRange(0, 512),
+  "rotate" : ['0.0', '1.0', '-1.0'],
+  "condcmp" : ['0.0', '1.0', '-1.0'],
 }
 
 def get_kernel_path():
@@ -31,7 +33,7 @@ def get_policy_path():
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
 
 def get_default_policy():
-  return ",,,1.0,all"
+  return ",,,1.0,all,-1.0,-1.0"
 
 def get_line_number(file_path, kernel_name):
   with open(file_path, 'r') as file:
@@ -54,18 +56,21 @@ def change_policy_file(line_number, new_line):
   with open(get_policy_path(), 'w') as file:
     file.writelines(data)
     
-def diagnose_run_result(lines):
-  test_pass = True
+def diagnose_run_result_cycle(lines):
   cycle = 0
   result_lines = ""
   for line in lines:
+    if "XYS0" in line:
+      result_lines += line + "\n"
+      cycle += int(re.findall(r"Program executed \d+", line)[0].split()[-1])
+  return cycle, result_lines
+
+def diagnose_run_result(lines):
+  test_pass = True
+  for line in lines:
     if "fail" in line:
       test_pass = False
-    if "xys0" in line and "xys1" in line:
-      result_lines += line + "\n"
-      cycle += int(re.findall(r"xys0: \d+", line)[0].split()[-1])
-      cycle += int(re.findall(r"xys1: \d+", line)[0].split()[-1])
-  return cycle, test_pass, result_lines
+  return test_pass
 
 def get_most_recent_log_dir(log_dir):
   log_dirs = [log_dir + d for d in os.listdir(log_dir) if os.path.isdir(log_dir + d)]
