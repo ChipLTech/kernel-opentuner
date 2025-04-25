@@ -5,7 +5,7 @@ import os
 import random
 import sys
 
-log_path = "/wkspc/bainiu/autotune"
+log_path = "/work/autotune"
 
 def get_diff_files(last_commit, current_commit):
   # if last_commit == "":
@@ -13,7 +13,7 @@ def get_diff_files(last_commit, current_commit):
   #   changed_files = subprocess.check_output(['git', 'show', '--pretty=\'\'', '--name-only', current_commit]).decode().splitlines()
   # else:
   # print("Last commit:", last_commit)
-  changed_files = subprocess.check_output(['git', 'diff', '--name-only', last_commit + ".." + current_commit]).decode().splitlines()
+  changed_files = subprocess.check_output(['git', 'diff', '--name-only', "--diff-filter=d", last_commit + ".." + current_commit]).decode().splitlines()
   if not filter_kernel_files(changed_files):
     print("No kernel files changed since last tune")
     prev5_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD~5']).decode().strip()

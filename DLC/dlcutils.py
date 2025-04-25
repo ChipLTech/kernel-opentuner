@@ -129,12 +129,12 @@ def get_kernel_to_cycle(res, name_to_kernel):
   return kernel_to_cycle
 
 def get_llama_path():
-  return "/root/llama2-sft/"
+  return "/work/llama2-fine-tune"
 
 def get_llama_kernels():
-  return ['embedding_dense', 'arange_int64', 'eq_Scalar_out_int64', 'all_all_out', 'FusedRMSNorm', 'matmul_t', 'dropout_dlc_random',\
-    'foreach_mul_scalar', '_foreach_add_tensor', 'permute', 'rotary_pos_emb_f32', 'FusedRoPE', 'scaled_dot_product_efficient_attention',\
-    'silu', 'foreach_mul', 'slice', 'log_softmax', 'full', 'reshape_offset_int64', 'nll_loss', 'foreach_div_scalar', 'nll_loss_backward',\
-    'log_softmax_backward', 'copy_memory', 'slice_backward', 'scale_masked', 'FusedRMSNormBackward', 'silu_backward', \
-    'scaled_dot_product_efficient_attention_backward', 'FusedRoPEBack', 'ne_Tensor_out', 'abs', 'eq_Scalar_out', 'linalg_vector_norm', \
-    'copy_stride_smem', 'cat_tensorlist', 'foreach_add_scalar', 'reciprocal', 'clamp_out_scalar', 'fused_adamw', 'mean_dim']
+  return ['embedding_dense', 'arange_int64', 'eq_Scalar_out_int64', 'all_all_out', 'rotary_pos_emb_f32', 'FusedRMSNorm', 'matmul_t_pingpong',\
+    'dropout_dlc_random', 'foreach_mul_scalar', 'foreach_add_tensor', 'reshape_offset', 'permute', 'FusedRoPE', 'scaled_dot_product_efficient_attention',\
+    'silu', 'foreach_mul', 'slice', 'slice_long', 'log_softmax', 'nll_loss', 'foreach_div_scalar', 'full', 'nll_loss_backward', 'log_softmax_backward',\
+    'convert_element_type_32bit', 'slice_backward', 'scale_masked', 'FusedRMSNormBackward', 'silu_backward', 'scaled_dot_product_efficient_attention_backward',\
+    'FusedRoPEBack', 'ne_Scalar_out', 'abs', 'eq_Scalar_out', 'linalg_vector_norm', 'cat_tensorlist_pingpong', 'foreach_add_scalar', 'reciprocal',\
+    'clamp_out_scalar', 'fused_adamw', 'mean_dim']
