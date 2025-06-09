@@ -22,11 +22,12 @@ dim_option = {
 }
 
 def get_kernel_path():
-  tuner_path = os.path.dirname(os.path.abspath(__file__)) + "/../"
-  if os.path.exists(tuner_path + "../DLC_Custom_Kernel/"):
-    return tuner_path + "../DLC_Custom_Kernel/"
-  else:
-    raise SystemError("DLC_Custom_Kernel not found")
+  # tuner_path = os.path.dirname(os.path.abspath(__file__)) + "/../"
+  # if os.path.exists(tuner_path + "../DLC_Custom_Kernel/"):
+  #   return tuner_path + "../DLC_Custom_Kernel/"
+  # else:
+  #   raise SystemError("DLC_Custom_Kernel not found")
+  return "/home/CI/DLC_Custom_Kernel/"
   
 def get_policy_path():
   kernel_dir = get_kernel_path()
@@ -129,7 +130,7 @@ def get_kernel_to_cycle(res, name_to_kernel):
   return kernel_to_cycle
 
 def get_llama_path():
-  return "/work/llama2-fine-tune"
+  return "/home/CI/models/llama2-fine-tune"
 
 def get_llama_kernels():
   return ['embedding_dense', 'arange_int64', 'eq_Scalar_out_int64', 'all_all_out', 'rotary_pos_emb_f32', 'FusedRMSNorm', 'matmul_t_pingpong',\

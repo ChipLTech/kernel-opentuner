@@ -5,7 +5,7 @@ import os
 import random
 import sys
 
-log_path = "/work/autotune"
+log_path = "/home/CI/autotune"
 
 def get_diff_files(last_commit, current_commit):
   # if last_commit == "":

@@ -144,7 +144,7 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
-      run_cmd = "ACCELERATE_TORCH_DEVICE=dlc python sft_trainer.py --device=dlc"
+      run_cmd = "ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc"
       print("Executor starts to run the model")
       os.chdir(get_llama_path())
       # try:
