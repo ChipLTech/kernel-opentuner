@@ -83,7 +83,8 @@ def get_most_recent_log_dir(log_dir):
   
 def diagnose_llama_result(text):
   kernel_launches_name_body = [get_kernel_info(remove_ansi(kernel)) for kernel in get_kernel_launches(text)]
-  kernel_names = [x[0] for x in kernel_launches_name_body]
+  # kernel_names = [x[0] for x in kernel_launches_name_body]
+  kernel_names = [x[0] for i, x in enumerate(kernel_launches_name_body) if i % 2 == 1]
   kernel_cycles = get_kernel_cycles(text)
   total_cycles = sum(kernel_cycles) + 1
 
@@ -137,5 +138,5 @@ def get_llama_kernels():
     'dropout_dlc_random', 'foreach_mul_scalar', 'foreach_add_tensor', 'reshape_offset', 'permute', 'FusedRoPE', 'scaled_dot_product_efficient_attention',\
     'silu', 'foreach_mul', 'slice', 'slice_long', 'log_softmax', 'nll_loss', 'foreach_div_scalar', 'full', 'nll_loss_backward', 'log_softmax_backward',\
     'convert_element_type_32bit', 'slice_backward', 'scale_masked', 'FusedRMSNormBackward', 'silu_backward', 'scaled_dot_product_efficient_attention_backward',\
-    'FusedRoPEBack', 'ne_Scalar_out', 'abs', 'eq_Scalar_out', 'linalg_vector_norm', 'cat_tensorlist_pingpong', 'foreach_add_scalar', 'reciprocal',\
+    'FusedRoPEBack', 'abs', 'eq_Scalar_out', 'linalg_vector_norm', 'cat_tensorlist_pingpong', 'foreach_add_scalar', 'reciprocal',\
     'clamp_out_scalar', 'fused_adamw', 'mean_dim']

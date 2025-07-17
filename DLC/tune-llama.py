@@ -108,6 +108,7 @@ class KernelFlagsTuner(MeasurementInterface):
       """
       # print("Compiling with configuration: ", cfg)
       self.set_opt_flag(cfg)
+      print("set opt flag finished")
       compile_ready_count_lock.acquire()
       change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
       compile_ready_count.value += 1
