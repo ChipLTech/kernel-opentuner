@@ -76,9 +76,15 @@ if __name__ == '__main__':
   most_recent_log_dir = get_most_recent_log_dir(log_path)
   print(most_recent_log_dir)
   os.chdir(get_kernel_path())
-  tune_llama = True if 'llama' in sys.argv else False
+  tune_llama = True if 'Llama' in sys.argv else False
+  tune_gemma = True if 'gemma' in sys.argv else False
+  tune_tinyllama = True if 'tinyllama' in sys.argv else False
   if tune_llama:
     print("*********** Start to tune with llama ***********")
+  elif tune_gemma:
+    print("*********** Start to tune with gemma ***********")
+  elif tune_tinyllama:
+    print("*********** Start to tune with tinyllama ***********")
   else:
     print("*********** Start to tune syntests ***********")
   
@@ -112,8 +118,17 @@ if __name__ == '__main__':
   ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
   subprocess.run(ninja_cmd.split())
   subprocess.run(['ninja', '-C', build_dir, 'install'])
-  
-  if not tune_llama:
+    
+  if tune_llama:
+    candidate_kernel = get_llama_kernels()
+    script = 'tune-llama.py'
+  elif tune_gemma:
+    candidate_kernel = get_gemma_kernels()
+    script = 'tune-gemma.py'
+  elif tune_tinyllama:
+    candidate_kernel = get_tinyllama_kernels()
+    script = 'tune-tinyllama.py'
+  else:
     # get the changed files
     changed_files = get_diff_files(most_recent_commit, current_commit)
     subprocess.run(['touch', new_log_dir + "/changed_files.txt"])
@@ -148,9 +163,6 @@ if __name__ == '__main__':
     #   candidate_kernel.extend(ramdom_picked)
     #   print(candidate_kernel, "after random picking")
     script = 'multi-tune-hw.py'
-  else:
-    candidate_kernel = get_llama_kernels()
-    script = 'tune-llama.py'
   
   kernel_param = "--kernel=" + ",".join(candidate_kernel)
   subprocess.run(['mkdir', '-p', new_log_dir + "/tunerDB"])

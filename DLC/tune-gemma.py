@@ -145,9 +145,8 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
-      # run_cmd = "ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc"
       run_cmd = "DLC_VISIBLE_DEVICES=0 ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
-                --model=/mnt/jfs/ci_models/Llama-2-7b-hf --max_seq_length=512 --dtype=float --dropout=0.05"
+                --model=/mnt/jfs/ci_models/gemma-7b --max_seq_length=256 --dtype=float --dropout=0.05"
       print("Executor starts to run the model")
       os.chdir(get_llama_path())
       # try:
@@ -173,11 +172,11 @@ class KernelFlagsTuner(MeasurementInterface):
       print("Model run finished")
       
       # save the log
-      subprocess.call("touch " + self.log_root + "llama_iter" + str(iteration_count.value) + ".log", shell=True)
-      with open(self.log_root + "llama_iter" + str(iteration_count.value) + ".log", 'w') as f:
+      subprocess.call("touch " + self.log_root + "gemma_iter" + str(iteration_count.value) + ".log", shell=True)
+      with open(self.log_root + "gemma_iter" + str(iteration_count.value) + ".log", 'w') as f:
         f.write(run_result)
       print("Log saved")
-      # with open('/home/test/lanhu/autotune/logs/1727544383/llama_iter0.log') as f:
+      # with open('/home/test/lanhu/autotune/logs/1727544383/gemma_iter0.log') as f:
       #   run_result = f.read()
       iteration_count.value += 1
       
@@ -185,6 +184,7 @@ class KernelFlagsTuner(MeasurementInterface):
       kernel_to_cycle, total_cycle = diagnose_llama_result(run_result)
       test_res_list = kernel_to_cycle.copy()
       print("Total cycle: ", total_cycle)
+      print("Kernel to cycle: ", kernel_to_cycle)
     
     test_ready_count.value += 1
     # print(self.get_prefix(), "Test ready count: ", test_ready_count.value)

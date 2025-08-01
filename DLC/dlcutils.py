@@ -27,8 +27,8 @@ def get_kernel_path():
   #   return tuner_path + "../DLC_Custom_Kernel/"
   # else:
   #   raise SystemError("DLC_Custom_Kernel not found")
-  return "/home/CI/DLC_Custom_Kernel/"
-  
+  return "/home/test_ci/DLC_Custom_Kernel/DLC_Custom_Kernel/"
+
 def get_policy_path():
   kernel_dir = get_kernel_path()
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
@@ -56,22 +56,6 @@ def change_policy_file(line_number, new_line):
   data[line_number] = new_line
   with open(get_policy_path(), 'w') as file:
     file.writelines(data)
-    
-def diagnose_run_result_cycle(lines):
-  cycle = 0
-  result_lines = ""
-  for line in lines:
-    if "XYS0" in line:
-      result_lines += line + "\n"
-      cycle += int(re.findall(r"Program executed \d+", line)[0].split()[-1])
-  return cycle, result_lines
-
-def diagnose_run_result(lines):
-  test_pass = True
-  for line in lines:
-    if "fail" in line:
-      test_pass = False
-  return test_pass
 
 def get_most_recent_log_dir(log_dir):
   log_dirs = [log_dir + d for d in os.listdir(log_dir) if os.path.isdir(log_dir + d)]
@@ -80,63 +64,149 @@ def get_most_recent_log_dir(log_dir):
   else:
     log_dirs.sort(key=lambda x: os.path.getmtime(x))
     return log_dirs[-1]
-  
-def diagnose_llama_result(text):
-  kernel_launches_name_body = [get_kernel_info(remove_ansi(kernel)) for kernel in get_kernel_launches(text)]
-  # kernel_names = [x[0] for x in kernel_launches_name_body]
-  kernel_names = [x[0] for i, x in enumerate(kernel_launches_name_body) if i % 2 == 1]
-  kernel_cycles = get_kernel_cycles(text)
-  total_cycles = sum(kernel_cycles) + 1
-
-  if len(kernel_cycles) != len(kernel_names):
-      print('Warning: kernel names and cycles length mismatch')
-      print('kernel length:', len(kernel_names))
-      print('cycles length:', len(kernel_cycles))
-      kernel_cycles = kernel_cycles[:len(kernel_names)]
-      while len(kernel_cycles) < len(kernel_names):
-          kernel_cycles.append(0)
-
-  ############################################################################################################################
-  kernel_name_cycles = {}
-  for name, cycle in zip(kernel_names, kernel_cycles):
-      if name not in kernel_name_cycles:
-          kernel_name_cycles[name] = 0
-      kernel_name_cycles[name] += int(cycle)
-      # kernel_name_cycles[name][1] += 1
-  return get_kernel_to_cycle(kernel_name_cycles, get_register_name_to_kernel()), total_cycles
-
-def get_register_name_to_kernel():
-  with open(get_kernel_path() + 'dlc_src/kernel_info.yaml') as f:
-    config = yaml.safe_load(f)
-  name_to_kernel = {}
-  for item in config:
-    if 'name' in item and 'src' in item:
-      src = item['src']
-      if isinstance(src, list):
-        src = src[0].split('.')[0]
-      name_to_kernel[item['name']] = src
-  return name_to_kernel
-
-def get_kernel_to_cycle(res, name_to_kernel):
-  kernel_to_cycle = {}
-  for item in res.keys():
-    if item not in name_to_kernel.keys():
-      kernel = item.split('custom_')[1]
-    else:
-      kernel = name_to_kernel[item]
-    if kernel in kernel_to_cycle.keys():
-      kernel_to_cycle[kernel] += res[item]
-    else:
-      kernel_to_cycle[kernel] = res[item]
-  return kernel_to_cycle
 
 def get_llama_path():
-  return "/home/CI/models/llama2-fine-tune"
+    return "/home/test_models/llama2-fine-tune"
+
+def get_tinyllama_kernels():
+    return [
+        "reshape_offset",
+        "matmul_t_pingpong",
+        "log_softmax",
+        "FusedRMSNormBackward_f32",
+        "log_softmax_backward",
+        "scaled_dot_product_efficient_attention",
+        "dropout_dlc_random",
+        "scale_masked",
+        "scaled_dot_product_efficient_attention_backward",
+        "linalg_vector_norm",
+        "permute",
+        "foreach_add_tensor",
+        "FusedRoPEBack_f32",
+        "foreach_mul_scalar",
+        "foreach_mul",
+        "FusedRoPE_f32",
+        "nll_loss_backward",
+        "fused_adamw",
+        "convert_element_type_32bit",
+        "FusedRMSNorm_f32",
+        "silu_tensor",
+        "full",
+        "silu_backward_tensor",
+        "slice_backward",
+        "slice_tensor",
+        "embedding_dense",
+        "nll_loss",
+        "RotaryPosEmb_f32",
+        "foreach_add_scalar",
+        "slice_long",
+        "cat_tensorlist_pingpong",
+        "mean_dim",
+        "foreach_div_scalar",
+        "ne_Tensor_out",
+        "eq_Scalar_out_int64",
+        "eq_Scalar_out",
+        "clamp_out_scalar",
+        "reciprocal",
+        "all_all_out",
+        "arange_int64",
+        "abs",
+    ]
+
+
+def get_gemma_kernels():
+    return [
+        "matmul_t_pingpong",
+        "gelu_backward_tensor",
+        "linalg_vector_norm",
+        "gelu_tensor",
+        "foreach_mul",
+        "foreach_add_tensor",
+        "log_softmax",
+        "foreach_mul_scalar",
+        "dropout_dlc_random",
+        "log_softmax_backward",
+        "permute",
+        "scaled_dot_product_efficient_attention",
+        "scaled_dot_product_efficient_attention_backward",
+        "scale_masked",
+        "FusedRoPEBack_f32",
+        "fused_adamw",
+        "FusedRoPE_f32",
+        "mean_dim_reduce",
+        "convert_element_type_32bit",
+        "sum_intList",
+        "pow_tensor_scalar",
+        "nll_loss_backward",
+        "expand",
+        "cos_f32",
+        "sin_tensor",
+        "full",
+        "foreach_div_scalar",
+        "slice_backward",
+        "slice_tensor",
+        "nll_loss",
+        "foreach_add_scalar",
+        "embedding_dense",
+        "cat_tensorlist_pingpong",
+        "bmm_f32",
+        "rsqrt",
+        "convert_element_type_64bit",
+        "slice_long",
+        "reshape_offset",
+        "mean_dim",
+        "ne_Tensor_out",
+        "eq_Scalar_out_int64",
+        "eq_Scalar_out",
+        "clamp_out_scalar",
+        "reciprocal",
+        "all_all_out",
+        "arange_int64",
+        "abs",
+    ]
+
 
 def get_llama_kernels():
-  return ['embedding_dense', 'arange_int64', 'eq_Scalar_out_int64', 'all_all_out', 'rotary_pos_emb_f32', 'FusedRMSNorm', 'matmul_t_pingpong',\
-    'dropout_dlc_random', 'foreach_mul_scalar', 'foreach_add_tensor', 'reshape_offset', 'permute', 'FusedRoPE', 'scaled_dot_product_efficient_attention',\
-    'silu', 'foreach_mul', 'slice', 'slice_long', 'log_softmax', 'nll_loss', 'foreach_div_scalar', 'full', 'nll_loss_backward', 'log_softmax_backward',\
-    'convert_element_type_32bit', 'slice_backward', 'scale_masked', 'FusedRMSNormBackward', 'silu_backward', 'scaled_dot_product_efficient_attention_backward',\
-    'FusedRoPEBack', 'abs', 'eq_Scalar_out', 'linalg_vector_norm', 'cat_tensorlist_pingpong', 'foreach_add_scalar', 'reciprocal',\
-    'clamp_out_scalar', 'fused_adamw', 'mean_dim']
+    return [
+        "matmul_t_pingpong",
+        "scaled_dot_product_efficient_attention",
+        "scaled_dot_product_efficient_attention_backward",
+        "FusedRMSNormBackward_f32",
+        "linalg_vector_norm",
+        "foreach_add_tensor",
+        "dropout_dlc_random",
+        "permute",
+        "foreach_mul_scalar",
+        "scale_masked",
+        "FusedRoPEBack_f32",
+        "foreach_mul",
+        "silu_tensor",
+        "silu_backward_tensor",
+        "FusedRoPE_f32",
+        "FusedRMSNorm_f32",
+        "fused_adamw",
+        "log_softmax",
+        "log_softmax_backward",
+        "convert_element_type_32bit",
+        "nll_loss_backward",
+        "embedding_dense",
+        "full",
+        "foreach_add_scalar",
+        "slice_backward",
+        "slice_tensor",
+        "nll_loss",
+        "cat_tensorlist_pingpong",
+        "RotaryPosEmb_f32",
+        "slice_long",
+        "reshape_offset",
+        "mean_dim",
+        "foreach_div_scalar",
+        "eq_Scalar_out_int64",
+        "ne_Tensor_out",
+        "eq_Scalar_out",
+        "clamp_out_scalar",
+        "reciprocal",
+        "all_all_out",
+        "arange_int64",
+        "abs",
+    ]
