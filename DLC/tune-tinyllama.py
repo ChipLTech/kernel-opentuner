@@ -146,7 +146,7 @@ class KernelFlagsTuner(MeasurementInterface):
     # only one thread is allowed to run the model
     if self.is_executor:
       run_cmd = "DLC_VISIBLE_DEVICES=0 ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
-                --model=./tinyllama-15M --max_seq_length=512 --dtype=float --dropout=0.05"
+                --model=./tinyllama-15M --max_seq_length=512 --dtype=bfloat16 --dropout=0.05"
       print("Executor starts to run the model")
       os.chdir(get_llama_path())
       # try:
