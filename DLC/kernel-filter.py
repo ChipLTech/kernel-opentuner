@@ -76,15 +76,18 @@ if __name__ == '__main__':
   most_recent_log_dir = get_most_recent_log_dir(log_path)
   print(most_recent_log_dir)
   os.chdir(get_kernel_path())
-  tune_llama = True if 'Llama' in sys.argv else False
+  tune_llama = True if 'llama' in sys.argv else False
   tune_gemma = True if 'gemma' in sys.argv else False
   tune_tinyllama = True if 'tinyllama' in sys.argv else False
+  tune_deepseek_qwen_7b = True if 'deepseek_qwen_7b' in sys.argv else False
   if tune_llama:
     print("*********** Start to tune with llama ***********")
   elif tune_gemma:
     print("*********** Start to tune with gemma ***********")
   elif tune_tinyllama:
     print("*********** Start to tune with tinyllama ***********")
+  elif tune_deepseek_qwen_7b:
+    print("*********** Start to tune with deepseek_qwen_7b ***********")
   else:
     print("*********** Start to tune syntests ***********")
   
@@ -128,6 +131,9 @@ if __name__ == '__main__':
   elif tune_tinyllama:
     candidate_kernel = get_tinyllama_kernels()
     script = 'tune-tinyllama.py'
+  elif tune_deepseek_qwen_7b:
+    candidate_kernel = get_deepseek_qwen_7b_kernels()
+    script = 'tune-deepseek_qwen_7b.py'
   else:
     # get the changed files
     changed_files = get_diff_files(most_recent_commit, current_commit)
