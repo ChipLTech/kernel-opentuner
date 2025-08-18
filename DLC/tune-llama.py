@@ -25,6 +25,8 @@ import copy
 import os
 import signal
 import subprocess
+import csv
+from datetime import datetime
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -32,6 +34,7 @@ parser.add_argument('--kernel', help='kernel name to tune')
 
 # manager = Manager()
 test_res_list = {}
+best_cycle = 2 ** 63 - 1
 
 # sync across processes
 compile_ready_count = multiprocessing.Value(c_int, 0)
@@ -142,6 +145,7 @@ class KernelFlagsTuner(MeasurementInterface):
     Run a compile_result from compile() sequentially and return performance
     """
     global test_res_list
+    global best_cycle
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
@@ -185,6 +189,8 @@ class KernelFlagsTuner(MeasurementInterface):
       kernel_to_cycle, total_cycle = diagnose_llama_result(run_result)
       test_res_list = kernel_to_cycle.copy()
       print("Total cycle: ", total_cycle)
+      if total_cycle < best_cycle:
+        best_cycle = total_cycle
     
     test_ready_count.value += 1
     # print(self.get_prefix(), "Test ready count: ", test_ready_count.value)
@@ -359,3 +365,11 @@ if __name__ == '__main__':
   # KernelFlagsTuner.main(args)
   tuner = MultiKernelTuner(args)
   tuner.main()
+  
+  date = datetime.now().strftime("%Y-%m-%d")
+  new_data = [
+      {"date": date, "cycles": best_cycle}
+  ]
+  with open('/home/CI/autotune/cycles_data_llama.csv', 'a', newline='') as csvfile:
+      writer = csv.DictWriter(csvfile, fieldnames=['date', 'cycles'])
+      writer.writerows(new_data)
