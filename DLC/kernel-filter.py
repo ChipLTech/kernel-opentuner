@@ -5,7 +5,7 @@ import os
 import random
 import sys
 
-log_path = "/home/CI/autotune"
+log_path = "/mnt/jfs/ci-dingtalk/autotune"
 
 def get_diff_files(last_commit, current_commit):
   # if last_commit == "":
@@ -175,4 +175,4 @@ if __name__ == '__main__':
   database_param = "--database=" + new_log_dir + "/tunerDB"
   print("*********** Start to tune ***********")
   subprocess.run(['python3', cur_dir + '/' + script, kernel_param, database_param])
-  subprocess.run(['cp', get_policy_path(), new_log_dir]) 
+  subprocess.run(['cp', get_policy_path(), new_log_dir])

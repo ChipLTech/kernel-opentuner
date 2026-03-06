@@ -4,26 +4,44 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-# 读取三个数据集（完全保留原始代码）
-df_tinyllama = pd.read_csv('/home/CI/autotune/cycles_data_tinyllama.csv', parse_dates=['date'])
-df_gemma = pd.read_csv('/home/CI/autotune/cycles_data_gemma.csv', parse_dates=['date'])
-df_llama = pd.read_csv('/home/CI/autotune/cycles_data_llama.csv', parse_dates=['date'])
-
-# 新增：读取基准值历史
-def read_baseline_history(file_path):
-    if not os.path.exists(file_path):
+def _read_cycles_csv(file_path: str) -> pd.DataFrame:
+    """
+    兼容两种格式：
+    1) 有表头：date,cycles
+    2) 无表头：2026-01-08,6328830272
+    """
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return pd.DataFrame(columns=['date', 'cycles'])
+
     try:
-        if os.path.getsize(file_path) == 0:
-            return pd.DataFrame(columns=['date', 'cycles'])
-        return pd.read_csv(file_path, parse_dates=['date'])
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            first_line = (f.readline() or "").strip()
+
+        # 粗略判断是否包含表头
+        has_header = first_line.lower().startswith("date") or "date" in first_line.lower().split(",")
+
+        if has_header:
+            df = pd.read_csv(file_path, parse_dates=['date'])
+        else:
+            df = pd.read_csv(file_path, header=None, names=['date', 'cycles'])
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+
+        df['cycles'] = pd.to_numeric(df['cycles'], errors='coerce')
+        df = df.dropna(subset=['date', 'cycles'])
+        return df
     except Exception as exc:
-        print(f"无法读取基准值历史文件 {file_path}: {exc}")
+        print(f"无法读取数据文件 {file_path}: {exc}")
         return pd.DataFrame(columns=['date', 'cycles'])
 
-baseline_tinyllama = read_baseline_history('/home/CI/autotune/tinyllama_baseline_history.csv')
-baseline_gemma = read_baseline_history('/home/CI/autotune/gemma_baseline_history.csv')
-baseline_llama = read_baseline_history('/home/CI/autotune/llama_baseline_history.csv')
+# 读取三个数据集（兼容无表头 CSV）
+df_tinyllama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/cycles_data_tinyllama.csv')
+df_gemma = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/cycles_data_gemma.csv')
+df_llama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/cycles_data_llama.csv')
+
+# 读取基准值历史（同样兼容无表头）
+baseline_tinyllama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/tinyllama_baseline_history.csv')
+baseline_gemma = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/gemma_baseline_history.csv')
+baseline_llama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/llama_baseline_history.csv')
 
 # 创建子图布局 (仅添加基准值到模型列表，其他完全保留)
 fig = make_subplots(
@@ -84,4 +102,4 @@ for annotation in fig['layout']['annotations']:
     annotation['font'] = dict(size=14, color='blue')
 
 # 保存为单个HTML文件（完全保留原始路径）
-fig.write_html("/home/test_ci/DLC_Custom_Kernel/DLC_Custom_Kernel/interactive_cycles_chart.html")
+fig.write_html("/home/runner/_work/DLC_Custom_Kernel/DLC_Custom_Kernel/interactive_cycles_chart.html")

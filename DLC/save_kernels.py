@@ -90,7 +90,7 @@ if latest_file:
         print(f"Error running tool.py: {e}")
 
 # 3. 保存算子到 txt 文件
-txt_dir = "/home/CI/autotune"
+txt_dir = "/mnt/jfs/ci-dingtalk/autotune"
 os.makedirs(txt_dir, exist_ok=True)
 kernels_file = os.path.join(txt_dir, f"{model_name}_kernels.txt")
 cycles_file = os.path.join(txt_dir, f"{model_name}_cycles.txt")
@@ -126,7 +126,7 @@ else:
     print(f"No total_cycles available to save to {cycles_file}")
 
 # 4. 更新 dlcutils.py 中对应方法
-dlcutils_path = "/home/CI/kernel-opentuner/DLC/dlcutils.py"
+dlcutils_path = "/home/runner/_work/kernel-opentuner/kernel-opentuner/DLC/dlcutils.py"
 if os.path.exists(dlcutils_path) and kernel_dict:
     with open(dlcutils_path, "r") as f:
         dlc_content = f.read()
