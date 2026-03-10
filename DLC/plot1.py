@@ -33,15 +33,14 @@ def _read_cycles_csv(file_path: str) -> pd.DataFrame:
         print(f"无法读取数据文件 {file_path}: {exc}")
         return pd.DataFrame(columns=['date', 'cycles'])
 
-# 读取三个数据集（兼容无表头 CSV）
-df_tinyllama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/cycles_data_tinyllama.csv')
-df_gemma = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/cycles_data_gemma.csv')
-df_llama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/cycles_data_llama.csv')
 
-# 读取基准值历史（同样兼容无表头）
-baseline_tinyllama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/tinyllama_baseline_history.csv')
-baseline_gemma = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/gemma_baseline_history.csv')
-baseline_llama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/llama_baseline_history.csv')
+df_tinyllama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/tinyllama/cycles_data_tinyllama.csv')
+df_gemma = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/gemma/cycles_data_gemma.csv')
+df_llama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/llama/cycles_data_llama.csv')
+
+baseline_tinyllama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/tinyllama/tinyllama_baseline_history.csv')
+baseline_gemma = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/gemma/gemma_baseline_history.csv')
+baseline_llama = _read_cycles_csv('/mnt/jfs/ci-dingtalk/autotune/llama/llama_baseline_history.csv')
 
 # 创建子图布局 (仅添加基准值到模型列表，其他完全保留)
 fig = make_subplots(

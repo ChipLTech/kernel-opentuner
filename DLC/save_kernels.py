@@ -90,7 +90,7 @@ if latest_file:
         print(f"Error running tool.py: {e}")
 
 # 3. 保存算子到 txt 文件
-txt_dir = "/mnt/jfs/ci-dingtalk/autotune"
+txt_dir = f"/mnt/jfs/ci-dingtalk/autotune/{model_name}"
 os.makedirs(txt_dir, exist_ok=True)
 kernels_file = os.path.join(txt_dir, f"{model_name}_kernels.txt")
 cycles_file = os.path.join(txt_dir, f"{model_name}_cycles.txt")

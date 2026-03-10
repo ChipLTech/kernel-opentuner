@@ -146,9 +146,10 @@ class KernelFlagsTuner(MeasurementInterface):
     # only one thread is allowed to run the model
     if self.is_executor:
       # run_cmd = "ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc"
-      run_cmd = "DLC_VISIBLE_DEVICES=0 ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
-                --model=/mnt/jfs/ci_models/DeepSeek-R1-Distill-Qwen-7B --dtype=bfloat16 --dropout=0.05"
-      print("Executor starts to run the model")
+      dlc_id = os.environ.get('CHIPLTECH_VISIBLE_DEVICES', os.environ.get('DLC_VISIBLE_DEVICES', '0'))
+      run_cmd = "DLC_VISIBLE_DEVICES={0} ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
+                --model=/mnt/jfs/ci_models/DeepSeek-R1-Distill-Qwen-7B --dtype=bfloat16 --dropout=0.05".format(dlc_id)
+      print("Executor starts to run the model on DLC {0}".format(dlc_id))
       os.chdir(get_llama_path())
       # try:
       #   with open(self.log_root + "log.ansi", 'r') as f:

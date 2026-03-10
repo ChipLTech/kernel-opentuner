@@ -149,9 +149,10 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
-      run_cmd = "DLC_VISIBLE_DEVICES=3 ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
-                --model=/mnt/jfs/ci_models/gemma-7b --max_seq_length=128 --dtype=bfloat16 --dropout=0.05"
-      print("Executor starts to run the model")
+      dlc_id = os.environ.get('CHIPLTECH_VISIBLE_DEVICES', os.environ.get('DLC_VISIBLE_DEVICES', '3'))
+      run_cmd = "DLC_VISIBLE_DEVICES={0} ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
+                --model=/mnt/jfs/ci_models/gemma-7b --max_seq_length=128 --dtype=bfloat16 --dropout=0.05".format(dlc_id)
+      print("Executor starts to run the model on DLC {0}".format(dlc_id))
       os.chdir(get_llama_path())
       # try:
       #   with open(self.log_root + "log.ansi", 'r') as f:
@@ -369,6 +370,6 @@ if __name__ == '__main__':
   new_data = [
       {"date": date, "cycles": best_cycle}
   ]
-  with open('/mnt/jfs/ci-dingtalk/autotune/cycles_data_gemma.csv', 'a', newline='') as csvfile:
+  with open('/mnt/jfs/ci-dingtalk/autotune/gemma/cycles_data_gemma.csv', 'a', newline='') as csvfile:
       writer = csv.DictWriter(csvfile, fieldnames=['date', 'cycles'])
       writer.writerows(new_data)
