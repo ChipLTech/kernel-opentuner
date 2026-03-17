@@ -120,10 +120,20 @@ class KernelFlagsTuner(MeasurementInterface):
         cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
         while compile_ready_count.value != self.total_kernel:
           pass
+
         cmake_res = self.call_program(cmake_cmd)
         assert cmake_res['returncode'] == 0
         print("CMake finished")
-        ninja_cmd = 'ninja -C {0} '.format(build_dir)
+
+        # Use controlled parallelism based on environment
+        parallelism = get_build_parallelism()
+        if parallelism:
+          ninja_cmd = 'ninja -C {0} -j {1}'.format(build_dir, parallelism)
+          print("Compiling with parallelism -j{} (memory-constrained mode)".format(parallelism))
+        else:
+          ninja_cmd = 'ninja -C {0}'.format(build_dir)
+          print("Compiling with default parallelism")
+
         ninja_res = self.call_program(ninja_cmd)
         print("Build finished")
         assert ninja_res['returncode'] == 0

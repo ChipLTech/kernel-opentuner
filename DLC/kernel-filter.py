@@ -118,7 +118,16 @@ if __name__ == '__main__':
   build_dir = get_kernel_path() + "build/"
   cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
   subprocess.run(cmake_cmd.split())
-  ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
+
+  # Use controlled parallelism based on environment
+  parallelism = get_build_parallelism()
+  if parallelism:
+    ninja_cmd = 'ninja -C {0} -j {1} syntests'.format(build_dir, parallelism)
+    print("Building with parallelism -j{}".format(parallelism))
+  else:
+    ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
+    print("Building with default parallelism")
+
   subprocess.run(ninja_cmd.split())
   subprocess.run(['ninja', '-C', build_dir, 'install'])
     

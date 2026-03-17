@@ -9,7 +9,7 @@ class TuneRange:
     self.max_value = max_value
     self.is_int = is_int
 
-opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineSink-slot", "MachineSink-chain", "MachineLICM", "RegCoalescer", "rotate", "condcmp"]
+opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineSink-slot", "MachineSink-chain", "MachineLICM", "RegCoalescer", "rotate", "condcmp", "Rename"]
 dim_option = {
   "MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
   "PostRA-MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
@@ -21,6 +21,7 @@ dim_option = {
   "RegCoalescer_1" : TuneRange(0, 512),
   "rotate" : ['0.0', '1.0', '-1.0'],
   "condcmp" : ['0.0', '1.0', '-1.0'],
+  "Rename" : TuneRange(10, 20),
 }
 
 def get_kernel_path():
@@ -36,7 +37,31 @@ def get_policy_path():
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
 
 def get_default_policy():
-  return ",,,,,1.0,all,-1.0,-1.0"
+  return ",,,,,1.0,all,-1.0,-1.0,15"
+
+def get_build_parallelism():
+  """
+  Get the appropriate build parallelism level for the current environment.
+  Returns the -j value for ninja/make commands.
+
+  - CI test machines (30GB RAM): Use -j8 to avoid OOM
+  - CI compile machines (high RAM): Use -j256 for speed
+  - Local development: Use system default (no -j flag)
+  """
+  import os
+
+  # Check if we're in CI test environment (test jobs have this variable)
+  if os.environ.get('DLC_AUTOTUNE_LOW_MEMORY') == '1':
+    # Test machine with 30GB memory - use conservative parallelism
+    return 36  # Can adjust to 16 if 8 is too slow, or 4 if still OOM
+
+  # Check if we're in CI compile environment
+  if os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('DLC_AUTOTUNE_LOW_MEMORY') != '1':
+    # Compile machine with high memory - use maximum parallelism
+    return 256
+
+  # Local development - use system default (ninja auto-detects)
+  return None  # None means no -j flag (ninja decides)
 
 def get_line_number(file_path, kernel_name):
   with open(file_path, 'r') as file:
