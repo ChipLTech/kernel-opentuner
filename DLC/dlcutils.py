@@ -9,7 +9,7 @@ class TuneRange:
     self.max_value = max_value
     self.is_int = is_int
 
-opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineSink-slot", "MachineSink-chain", "MachineLICM", "RegCoalescer", "rotate", "condcmp"]
+opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineSink-slot", "MachineSink-chain", "MachineLICM", "RegCoalescer", "rotate", "condcmp", "Rename"]
 dim_option = {
   "MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
   "PostRA-MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
@@ -21,6 +21,7 @@ dim_option = {
   "RegCoalescer_1" : TuneRange(0, 512),
   "rotate" : ['0.0', '1.0', '-1.0'],
   "condcmp" : ['0.0', '1.0', '-1.0'],
+  "Rename" : TuneRange(10, 20),
 }
 
 def get_kernel_path():
@@ -36,7 +37,7 @@ def get_policy_path():
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
 
 def get_default_policy():
-  return ",,,,,1.0,all,-1.0,-1.0"
+  return ",,,,,1.0,all,-1.0,-1.0,15"
 
 def get_line_number(file_path, kernel_name):
   with open(file_path, 'r') as file:
