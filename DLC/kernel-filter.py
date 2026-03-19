@@ -80,6 +80,7 @@ if __name__ == '__main__':
   tune_gemma = True if 'gemma' in sys.argv else False
   tune_tinyllama = True if 'tinyllama' in sys.argv else False
   tune_deepseek_qwen_7b = True if 'deepseek_qwen_7b' in sys.argv else False
+  test_limit = os.environ.get('AUTOTUNE_TEST_LIMIT', '12')
   if tune_llama:
     print("*********** Start to tune with llama ***********")
   elif tune_gemma:
@@ -182,6 +183,7 @@ if __name__ == '__main__':
   kernel_param = "--kernel=" + ",".join(candidate_kernel)
   subprocess.run(['mkdir', '-p', new_log_dir + "/tunerDB"])
   database_param = "--database=" + new_log_dir + "/tunerDB"
+  test_limit_param = f"--test-limit={test_limit}"
   print("*********** Start to tune ***********")
-  subprocess.run(['python3', cur_dir + '/' + script, kernel_param, database_param])
+  subprocess.run(['python3', cur_dir + '/' + script, kernel_param, database_param, test_limit_param])
   subprocess.run(['cp', get_policy_path(), new_log_dir])
