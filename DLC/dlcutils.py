@@ -9,7 +9,7 @@ class TuneRange:
     self.max_value = max_value
     self.is_int = is_int
 
-opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineSink-slot", "MachineSink-chain", "MachineLICM", "RegCoalescer", "rotate", "condcmp", "Rename"]
+opt_dim = ["MIScheduler", "PostRA-MIScheduler", "MachineSink", "MachineSink-slot", "MachineSink-chain", "MachineLICM", "RegCoalescer", "rotate", "condcmp", "Rename", "HardwareRename"]
 dim_option = {
   "MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
   "PostRA-MIScheduler" : ['topdown', 'bottomup', 'bidirectional'],
@@ -22,6 +22,7 @@ dim_option = {
   "rotate" : ['0.0', '1.0', '-1.0'],
   "condcmp" : ['0.0', '1.0', '-1.0'],
   "Rename" : TuneRange(10, 20),
+  "HardwareRename" : ['true', 'false'],
 }
 
 def get_kernel_path():
@@ -30,14 +31,14 @@ def get_kernel_path():
   #   return tuner_path + "../DLC_Custom_Kernel/"
   # else:
   #   raise SystemError("DLC_Custom_Kernel not found")
-  return "/home/runner/_work/DLC_Custom_Kernel/DLC_Custom_Kernel/"
+  return "/home/test/lanhu/DLC_Custom_Kernel/"
 
 def get_policy_path():
   kernel_dir = get_kernel_path()
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
 
 def get_default_policy():
-  return ",,,,,1.0,all,-1.0,-1.0,15"
+  return ",,,,,1.0,all,-1.0,-1.0,15,true"
 
 def get_build_parallelism():
   """
@@ -312,3 +313,17 @@ def get_deepseek_qwen_7b_kernels():
     "foreach_add_scalar_bf16",
     "abs",
     "arange_int64"]
+
+
+def diagnose_run_result(lines):
+  test_pass = True
+  cycle = 0
+  result_lines = ""
+  for line in lines:
+    if "fail" in line:
+      test_pass = False
+    if "xys0_cycle:" in line and "xys1_cycle:" in line:
+      result_lines += line + "\n"
+      cycle += int(re.findall(r"xys0_cycle: \d+", line)[0].split()[-1])
+      cycle += int(re.findall(r"xys1_cycle: \d+", line)[0].split()[-1])
+  return cycle, test_pass, result_lines

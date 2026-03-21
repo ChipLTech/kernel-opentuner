@@ -89,10 +89,11 @@ class KernelFlagsTuner(MeasurementInterface):
     """
     Run a compile_result from compile() sequentially and return performance
     """
-    run_cmd = get_kernel_path() + "build/syntests/syntests -t " + self.kernel_name
+    run_cmd = "DLC_SYN_DEBUG=1 DLC_SYN_VERBOSE=3 DLC_SYN_PROF_CYCLE=1 " + get_kernel_path() + "build/syntests/syntests -t " + self.kernel_name
     run_result = self.call_program(run_cmd)
-    succ = diagnose_run_result(run_result['stderr'].decode().split('\n'))
-    cycle, result_lines = diagnose_run_result_cycle(run_result['stdout'].decode().split('\n'))
+    #  = diagnose_run_result(run_result['stderr'].decode().split('\n'))
+    cycle, succ, result_lines = diagnose_run_result(run_result['stdout'].decode().split('\n'))
+    print("Result lines: ", result_lines)
     assert succ
     if self.old_better and cycle < self.old_performance:
       self.old_better = False
@@ -157,5 +158,5 @@ if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
   args.test_limit = 12
-  args.stop_after = 3 * 60 # 3min
+  # args.stop_after = 3 * 60 # 3min
   KernelFlagsTuner.main(args)
