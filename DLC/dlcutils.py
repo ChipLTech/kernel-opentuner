@@ -26,12 +26,12 @@ dim_option = {
 }
 
 def get_kernel_path():
-  # tuner_path = os.path.dirname(os.path.abspath(__file__)) + "/../"
-  # if os.path.exists(tuner_path + "../DLC_Custom_Kernel/"):
-  #   return tuner_path + "../DLC_Custom_Kernel/"
-  # else:
-  #   raise SystemError("DLC_Custom_Kernel not found")
-  return "/home/test/lanhu/DLC_Custom_Kernel/"
+  tuner_path = os.path.dirname(os.path.abspath(__file__)) + "/../"
+  if os.path.exists(tuner_path + "../DLC_Custom_Kernel/"):
+    return tuner_path + "../DLC_Custom_Kernel/"
+  else:
+    raise SystemError("DLC_Custom_Kernel not found")
+  # return "/home/test/lanhu/DLC_Custom_Kernel/"
 
 def get_policy_path():
   kernel_dir = get_kernel_path()
