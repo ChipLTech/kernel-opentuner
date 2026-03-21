@@ -90,6 +90,7 @@ class KernelFlagsTuner(MeasurementInterface):
     Run a compile_result from compile() sequentially and return performance
     """
     run_cmd = "DLC_SYN_DEBUG=1 DLC_SYN_VERBOSE=3 DLC_SYN_PROF_CYCLE=1 " + get_kernel_path() + "build/syntests/syntests -t " + self.kernel_name
+    print("Run command: ", run_cmd)
     run_result = self.call_program(run_cmd)
     #  = diagnose_run_result(run_result['stderr'].decode().split('\n'))
     cycle, succ, result_lines = diagnose_run_result(run_result['stdout'].decode().split('\n'))
