@@ -131,7 +131,7 @@ class KernelFlagsTuner(MeasurementInterface):
     else:
       print("Optimal compiling flag is:", configuration.data)
       self.opt_flag["MIScheduler"] = configuration.data[opt_dim[0]]
-    change_policy_file(self.line_number, self.kernel_name + "," + ",".join([self.opt_flag[key] for key in opt_dim]) + "\n")
+    change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
     
   def set_opt_flag(self, configuration):
     for key in configuration:
