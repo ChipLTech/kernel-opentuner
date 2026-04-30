@@ -14,6 +14,7 @@ MODEL_METHOD_MAP = {
     "tinyllama": "get_tinyllama_kernels",
     "gemma": "get_gemma_kernels",
     "deepseek_qwen_7b": "get_deepseek_qwen_7b_kernels",
+    "deepseek_llama_8b": "get_deepseek_llama_8b_kernels",
 }
 
 if len(sys.argv) != 2:

@@ -80,7 +80,6 @@ class KernelFlagsTuner(MeasurementInterface):
     info += "Kernel name: " + self.kernel_name + "\n"
     info += "Line number: " + str(self.line_number) + "\n"
     info += "Optimization flags: " + str(self.opt_flag) + "\n"
-    # print(info)
     # compare to current setting
     self.old_flag = self.opt_flag.copy()
     self.old_performance = 0
@@ -100,7 +99,7 @@ class KernelFlagsTuner(MeasurementInterface):
         else:
           manipulator.add_parameter(
             FloatParameter(key, dim_option[key].min_value, dim_option[key].max_value))
-      else:              
+      else:
         manipulator.add_parameter(
           EnumParameter(key, dim_option[key]))
     return manipulator
@@ -109,13 +108,11 @@ class KernelFlagsTuner(MeasurementInterface):
       """
       Compile a given configuration in parallel
       """
-      # print("Compiling with configuration: ", cfg)
       self.set_opt_flag(cfg)
       print("set opt flag finished")
       compile_ready_count_lock.acquire()
       change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
       compile_ready_count.value += 1
-      # print(self.get_prefix(), "Compile ready count: ", compile_ready_count.value)
       compile_ready_count_lock.release()
       # only one thread is allowed to compile
       if self.is_executor:
@@ -149,53 +146,46 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
-      # run_cmd = "ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc"
-      run_cmd = "DLC_VISIBLE_DEVICES=0 ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
-                --model=/mnt/jfs/ci_models/DeepSeek-R1-Distill-Qwen-7B --max_seq_length=256 --dtype=bfloat16 --dropout=0.05"
+      run_cmd = ("DLC_VISIBLE_DEVICES=0 vllm bench throughput "
+                 "--model /mnt/jfs/ci_models/DeepSeek-R1-Distill-Llama-8B "
+                 "--dataset /mnt/jfs/dataset/ShareGPT_V3_unfiltered_cleaned_split.json "
+                 "--generation-config auto "
+                 "--override-generation-config '{\"temperature\": 0.0}' "
+                 "--enable-chunked-prefill "
+                 "--max-num-batched-tokens 1024 "
+                 "--gpu-memory-utilization 0.95 "
+                 "--enforce-eager "
+                 "--dtype bfloat16 "
+                 "--block_size 256 "
+                 "--num-prompts 256 "
+                 "--output-len 4 "
+                 "--seed 1024")
       print("Executor starts to run the model")
-      os.chdir(get_llama_path())
-      # try:
-      #   with open(self.log_root + "log.ansi", 'r') as f:
-      #     run_result = f.read()
-      # except:
-      #   run_result = ""
-      #   print("No log file found")
-      # popen = subprocess.Popen(run_cmd, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
-      # for stdout_line in iter(popen.stdout.readline, ""):
-      #     print(stdout_line, end="")
-      #     run_result += stdout_line
-      # popen.stdout.close()
-      # return_code = popen.wait()
-      # if return_code:
-      #     raise subprocess.CalledProcessError(return_code, run_cmd)
-      
+
       run_result = ""
       with subprocess.Popen(run_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, shell=True) as p:
         for line in p.stdout:
-            print(line, end='') # process line here
+            print(line, end='')
             run_result += line
       print("Model run finished")
-      
+
       # save the log
-      subprocess.call("touch " + self.log_root + "deepseek_qwen_7b_iter" + str(iteration_count.value) + ".log", shell=True)
-      with open(self.log_root + "deepseek_qwen_7b_iter" + str(iteration_count.value) + ".log", 'w') as f:
+      subprocess.call("touch " + self.log_root + "deepseek_llama_8b_iter" + str(iteration_count.value) + ".log", shell=True)
+      with open(self.log_root + "deepseek_llama_8b_iter" + str(iteration_count.value) + ".log", 'w') as f:
         f.write(run_result)
       print("Log saved")
-      # with open('/home/test/lanhu/autotune/logs/1727544383/deepseek_qwen_7b_iter0.log') as f:
-      #   run_result = f.read()
       iteration_count.value += 1
-      
+
       # analyze the result
       kernel_to_cycle, total_cycle = diagnose_llama_result(run_result)
       test_res_list = kernel_to_cycle.copy()
       print("Total cycle: ", total_cycle)
       if total_cycle < best_cycle:
         best_cycle = total_cycle
-    
+
     test_ready_count.value += 1
-    # print(self.get_prefix(), "Test ready count: ", test_ready_count.value)
     test_ready_count_lock.release()
-    
+
     if self.is_executor:
       while test_ready_count.value != self.total_kernel:
         pass
@@ -216,7 +206,7 @@ class KernelFlagsTuner(MeasurementInterface):
     cfg = desired_result.configuration.data
     compile_result = self.compile(cfg, 0)
     return self.run_precompiled(desired_result, input, limit, compile_result, 0)
-  
+
   def extra_convergence_criteria(self, result):
     for res in result:
       self.option_record[opt_dim[0]][res.configuration.data[opt_dim[0]]] = 1
@@ -225,42 +215,41 @@ class KernelFlagsTuner(MeasurementInterface):
         if self.option_record[key][option] == 0:
           return False
     return True
-  
+
   def pre_process(self):
     # we need to record the current perfmance
     if self.old_performance == 0:
-      # print(self.get_prefix() + "Testing current setting")
       self.old_performance = self.run_precompiled(Result(time = 0), None, 0, 0, 0).time
       self.best_cycle = self.old_performance
-      
+
   def post_process(self):
     # every_iteraton, we need to save the best result
     compile_ready_count_lock.acquire()
     change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.best_opt_flag[key]) for key in opt_dim]) + "\n")
     compile_ready_count.value += 1
     compile_ready_count_lock.release()
-    
+
     if self.is_executor:
       while compile_ready_count.value != self.total_kernel:
         pass
-      subprocess.call("cp " + get_policy_path() + " " + self.log_root +  "strategy_iter" + str(iteration_count.value - 1) + ".csv", shell=True)
+      subprocess.call("cp " + get_policy_path() + " " + self.log_root + "strategy_iter" + str(iteration_count.value - 1) + ".csv", shell=True)
       compile_ready_count_lock.acquire()
       compile_ready_count.value = 0
       compile_ready_count_lock.release()
     else:
       while compile_ready_count.value != 0:
         pass
-      
+
   def execute(cmd):
     popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
     for stdout_line in iter(popen.stdout.readline, ""):
-      yield stdout_line 
+      yield stdout_line
     popen.stdout.close()
     return_code = popen.wait()
     if return_code:
       print(popen.stderr.read())
       raise subprocess.CalledProcessError(return_code, cmd)
-  
+
   def save_final_config(self, configuration):
     """called at the end of tuning"""
     if self.old_better:
@@ -280,7 +269,7 @@ class KernelFlagsTuner(MeasurementInterface):
     compile_ready_count_lock.acquire()
     change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
     compile_ready_count_lock.release()
-    
+
   def set_opt_flag(self, configuration):
     for key in configuration:
       if key != "MachineLICM" and key != "RegCoalescer_0" and key != "RegCoalescer_1":
@@ -292,7 +281,7 @@ class KernelFlagsTuner(MeasurementInterface):
       self.opt_flag["MachineLICM"] = ""
     else:
       self.opt_flag["MachineLICM"] = licm_value
-      
+
     reg_coalescer_0 = configuration["RegCoalescer_0"]
     reg_coalescer_1 = configuration["RegCoalescer_1"]
     if reg_coalescer_0 == 0 or reg_coalescer_1 == 0:
@@ -303,7 +292,7 @@ class KernelFlagsTuner(MeasurementInterface):
 
   def get_prefix(self):
     return "[" + self.kernel_name + "]"
-  
+
   def handle_results(self, cycle):
     if self.old_better and cycle < self.old_performance:
       self.old_better = False
@@ -311,12 +300,12 @@ class KernelFlagsTuner(MeasurementInterface):
       self.best_cycle = cycle
       self.best_opt_flag = self.opt_flag.copy()
     print(self.get_prefix(), "Number of cycles: ", cycle)
-    
+
     # keep another record in log file
     with open(self.log_path, 'a') as f:
       f.write(self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "," + str(cycle) + "\n")
       f.write(self.get_prefix() + "Total run: " + str(cycle) + " cycles\n")
-    
+
     return cycle
 
 class MultiKernelTuner():
@@ -326,7 +315,7 @@ class MultiKernelTuner():
     self.kernel_params = []
     self.db_path = pargs[0].database
     print(len(self.kernel_names), "kernels to tune")
-      
+
     for i in range(len(self.kernel_names)):
       kernel_name = self.kernel_names[i]
       single_parg = copy.copy(pargs[0])
@@ -344,11 +333,11 @@ class MultiKernelTuner():
       os.system("touch " + single_parg.log_path)
       os.system("touch " + single_parg.best_res)
       self.kernel_params.append(single_parg)
-      
+
   def main(self):
     self.thread_pool.map(KernelFlagsTuner.main, self.kernel_params)
-    self.thread_pool.close()      
-    
+    self.thread_pool.close()
+
 def signal_handler(self, sig):
   print(self.get_prefix(), "Caught signal", sig, "write the original setting back")
   with open(get_policy_path(), 'w') as file:
@@ -358,11 +347,9 @@ if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
   args.test_limit = 12
-  # args.stop_after = 3 * 60 # 3min
   with open(get_policy_path(), 'r') as file:
     original_setting = file.readlines()
   signal.signal(signal.SIGINT, signal_handler)
-  # KernelFlagsTuner.main(args)
   tuner = MultiKernelTuner(args)
   tuner.main()
 
@@ -370,6 +357,6 @@ if __name__ == '__main__':
   new_data = [
       {"date": date, "cycles": best_cycle}
   ]
-  with open('/home/CI/autotune/cycles_data_deepseek_qwen_7b.csv', 'a', newline='') as csvfile:
+  with open('/home/CI/autotune/cycles_data_deepseek_llama_8b.csv', 'a', newline='') as csvfile:
       writer = csv.DictWriter(csvfile, fieldnames=['date', 'cycles'])
       writer.writerows(new_data)
