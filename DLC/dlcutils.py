@@ -16,7 +16,7 @@ dim_option = {
   "MachineSink" : ['pass', 'disable'],
   "MachineSink-slot" : ['pass', 'disable'],
   "MachineSink-chain" : ['pass', 'disable'],
-  "MachineLICM" : TuneRange(0, 1, False),
+  "MachineLICM" : TuneRange(0, 2, False),
   "RegCoalescer_0" : TuneRange(0, 200),
   "RegCoalescer_1" : TuneRange(0, 512),
   "rotate" : ['0.0', '1.0', '-1.0'],
