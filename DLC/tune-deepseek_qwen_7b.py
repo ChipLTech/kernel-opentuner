@@ -27,6 +27,7 @@ import signal
 import subprocess
 import csv
 from datetime import datetime
+from pathlib import Path
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -149,48 +150,68 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
-      # run_cmd = "ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc"
-      run_cmd = "DLC_VISIBLE_DEVICES=0 ACCELERATE_TORCH_DEVICE=dlc python3 sft_trainer.py --device=dlc \
-                --model=/mnt/jfs/ci_models/DeepSeek-R1-Distill-Qwen-7B --max_seq_length=256 --dtype=bfloat16 --dropout=0.05"
+      current_iteration = iteration_count.value
+      visible_device = os.environ.get("DLC_VISIBLE_DEVICES", "0")
+      profile_dir = Path(self.log_root) / ("profile_iter" + str(current_iteration))
+      profile_dir.mkdir(parents=True, exist_ok=False)
+      run_cmd = [
+          "python3", "sft_trainer.py",
+          "--device=dlc",
+          "--model=/mnt/jfs/ci_models/DeepSeek-R1-Distill-Qwen-7B",
+          "--max_seq_length=256",
+          "--dtype=bfloat16",
+          "--dropout=0.05",
+      ]
+      run_env = os.environ.copy()
+      run_env.update({
+          "ACCELERATE_TORCH_DEVICE": "dlc",
+          "DLC_VISIBLE_DEVICES": visible_device,
+          "DLC_SYN_DEBUG": "1",
+          "DLC_SYN_VERBOSE": "1",
+          "DLC_SYN_PROF_CYCLE": "1",
+          "DLC_SYN_LOG_DIR": str(profile_dir),
+      })
       print("Executor starts to run the model")
-      os.chdir(get_llama_path())
-      # try:
-      #   with open(self.log_root + "log.ansi", 'r') as f:
-      #     run_result = f.read()
-      # except:
-      #   run_result = ""
-      #   print("No log file found")
-      # popen = subprocess.Popen(run_cmd, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
-      # for stdout_line in iter(popen.stdout.readline, ""):
-      #     print(stdout_line, end="")
-      #     run_result += stdout_line
-      # popen.stdout.close()
-      # return_code = popen.wait()
-      # if return_code:
-      #     raise subprocess.CalledProcessError(return_code, run_cmd)
+      print("DLC_VISIBLE_DEVICES:", visible_device)
+      print("Profile directory:", profile_dir)
       
       run_result = ""
-      with subprocess.Popen(run_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, shell=True) as p:
+      with subprocess.Popen(run_cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, bufsize=1,
+                            universal_newlines=True, cwd=get_llama_path(),
+                            env=run_env) as p:
         for line in p.stdout:
-            print(line, end='') # process line here
+            print(line, end='')
             run_result += line
+      if p.returncode != 0:
+        raise RuntimeError("Model command failed with exit code " + str(p.returncode))
       print("Model run finished")
       
       # save the log
-      subprocess.call("touch " + self.log_root + "deepseek_qwen_7b_iter" + str(iteration_count.value) + ".log", shell=True)
-      with open(self.log_root + "deepseek_qwen_7b_iter" + str(iteration_count.value) + ".log", 'w') as f:
+      with open(self.log_root + "deepseek_qwen_7b_iter" + str(current_iteration) + ".log", 'w') as f:
         f.write(run_result)
       print("Log saved")
-      # with open('/home/test/lanhu/autotune/logs/1727544383/deepseek_qwen_7b_iter0.log') as f:
-      #   run_result = f.read()
-      iteration_count.value += 1
       
       # analyze the result
-      kernel_to_cycle, total_cycle = diagnose_llama_result(run_result)
+      profile_files = sorted(profile_dir.glob("*.ansi"))
+      if not profile_files:
+        raise RuntimeError("No ANSI profile generated in " + str(profile_dir))
+      profile_text = "\n".join(
+          path.read_text(errors="ignore") for path in profile_files
+      )
+      kernel_to_cycle, total_cycle = diagnose_llama_result(profile_text)
+      print("Profile files:", [str(path) for path in profile_files])
+      print("Parsed kernel count:", len(kernel_to_cycle))
+      if self.kernel_name not in kernel_to_cycle:
+        raise RuntimeError(
+            "Tuned kernel missing from profile: " + self.kernel_name
+        )
       test_res_list = kernel_to_cycle.copy()
       print("Total cycle: ", total_cycle)
+      print("Tuned kernel cycle: ", kernel_to_cycle[self.kernel_name])
       if total_cycle < best_cycle:
         best_cycle = total_cycle
+      iteration_count.value += 1
     
     test_ready_count.value += 1
     # print(self.get_prefix(), "Test ready count: ", test_ready_count.value)
@@ -357,7 +378,8 @@ def signal_handler(self, sig):
 if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
-  args.test_limit = 12
+  args.test_limit = int(os.environ.get("AUTOTUNE_TEST_LIMIT", "12"))
+  os.makedirs('/home/CI/autotune', exist_ok=True)
   # args.stop_after = 3 * 60 # 3min
   with open(get_policy_path(), 'r') as file:
     original_setting = file.readlines()

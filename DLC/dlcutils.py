@@ -29,14 +29,19 @@ def get_kernel_path():
   #   return tuner_path + "../DLC_Custom_Kernel/"
   # else:
   #   raise SystemError("DLC_Custom_Kernel not found")
-  return "/home/test_ci/DLC_Custom_Kernel/DLC_Custom_Kernel/"
+  kernel_path = os.environ.get(
+      "DLC_CUSTOM_KERNEL_ROOT",
+      "/home/test_ci/DLC_Custom_Kernel/DLC_Custom_Kernel/",
+  )
+  return kernel_path.rstrip("/") + "/"
 
 def get_policy_path():
   kernel_dir = get_kernel_path()
   return kernel_dir + "dlc_src/opt_flag_data/autotune_strategies.csv"
 
 def get_default_policy():
-  return ",,,,,1.0,all,-1.0,-1.0"
+  # Keep the current 14-column DLC_Custom_Kernel policy schema.
+  return ",,,,,1.0,all,-1.0,-1.0,15,0,,0"
 
 def get_line_number(file_path, kernel_name):
   with open(file_path, 'r') as file:
@@ -53,10 +58,18 @@ def get_flag_dict(flags):
   return flag_dict
 
 def change_policy_file(line_number, new_line):
-  with open(get_policy_path(), 'r') as file:
+  with open(get_policy_path(), 'r', newline='') as file:
     data = file.readlines()
-  data[line_number] = new_line
-  with open(get_policy_path(), 'w') as file:
+  old_line = data[line_number]
+  line_ending = '\r\n' if old_line.endswith('\r\n') else '\n'
+  old_fields = old_line.rstrip('\r\n').split(',')
+  new_fields = new_line.rstrip('\r\n').split(',')
+  # kernel-opentuner tunes the first nine strategy fields. Preserve newer
+  # DLC_Custom_Kernel fields (Rename/MTRDefer/LoopFuse/AutoUnroll).
+  if len(old_fields) > len(new_fields):
+    new_fields.extend(old_fields[len(new_fields):])
+  data[line_number] = ','.join(new_fields) + line_ending
+  with open(get_policy_path(), 'w', newline='') as file:
     file.writelines(data)
 
 def get_most_recent_log_dir(log_dir):

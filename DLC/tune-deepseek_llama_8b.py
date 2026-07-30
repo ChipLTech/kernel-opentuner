@@ -27,6 +27,7 @@ import signal
 import subprocess
 import csv
 from datetime import datetime
+from pathlib import Path
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -146,42 +147,74 @@ class KernelFlagsTuner(MeasurementInterface):
     test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
-      run_cmd = ("DLC_VISIBLE_DEVICES=0 vllm bench throughput "
-                 "--model /mnt/jfs/ci_models/DeepSeek-R1-Distill-Llama-8B "
-                 "--dataset /mnt/jfs/dataset/ShareGPT_V3_unfiltered_cleaned_split.json "
-                 "--generation-config auto "
-                 "--override-generation-config '{\"temperature\": 0.0}' "
-                 "--enable-chunked-prefill "
-                 "--max-num-batched-tokens 1024 "
-                 "--gpu-memory-utilization 0.95 "
-                 "--enforce-eager "
-                 "--dtype bfloat16 "
-                 "--block_size 256 "
-                 "--num-prompts 256 "
-                 "--output-len 4 "
-                 "--seed 1024")
+      current_iteration = iteration_count.value
+      visible_device = os.environ.get("DLC_VISIBLE_DEVICES", "0")
+      profile_dir = Path(self.log_root) / ("profile_iter" + str(current_iteration))
+      profile_dir.mkdir(parents=True, exist_ok=False)
+      run_cmd = [
+          "vllm", "bench", "throughput",
+          "--model", "/mnt/jfs/ci_models/DeepSeek-R1-Distill-Llama-8B",
+          "--dataset", "/mnt/jfs/dataset/ShareGPT_V3_unfiltered_cleaned_split.json",
+          "--generation-config", "auto",
+          "--override-generation-config", '{"temperature": 0.0}',
+          "--enable-chunked-prefill",
+          "--max-num-batched-tokens", "1024",
+          "--gpu-memory-utilization", "0.95",
+          "--enforce-eager",
+          "--dtype", "bfloat16",
+          "--block-size", "256",
+          "--num-prompts", "256",
+          "--output-len", "4",
+          "--seed", "1024",
+      ]
+      run_env = os.environ.copy()
+      run_env.update({
+          "DLC_VISIBLE_DEVICES": visible_device,
+          "DLC_SYN_DEBUG": "1",
+          "DLC_SYN_VERBOSE": "1",
+          "DLC_SYN_PROF_CYCLE": "1",
+          "DLC_SYN_LOG_DIR": str(profile_dir),
+      })
       print("Executor starts to run the model")
+      print("DLC_VISIBLE_DEVICES:", visible_device)
+      print("Profile directory:", profile_dir)
 
       run_result = ""
-      with subprocess.Popen(run_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True, shell=True) as p:
+      with subprocess.Popen(run_cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, bufsize=1,
+                            universal_newlines=True, env=run_env) as p:
         for line in p.stdout:
             print(line, end='')
             run_result += line
+      if p.returncode != 0:
+        raise RuntimeError("Model command failed with exit code " + str(p.returncode))
       print("Model run finished")
 
       # save the log
-      subprocess.call("touch " + self.log_root + "deepseek_llama_8b_iter" + str(iteration_count.value) + ".log", shell=True)
-      with open(self.log_root + "deepseek_llama_8b_iter" + str(iteration_count.value) + ".log", 'w') as f:
+      with open(self.log_root + "deepseek_llama_8b_iter" + str(current_iteration) + ".log", 'w') as f:
         f.write(run_result)
       print("Log saved")
-      iteration_count.value += 1
 
       # analyze the result
-      kernel_to_cycle, total_cycle = diagnose_llama_result(run_result)
+      profile_files = sorted(profile_dir.glob("*.ansi"))
+      if not profile_files:
+        raise RuntimeError("No ANSI profile generated in " + str(profile_dir))
+      profile_text = "\n".join(
+          path.read_text(errors="ignore") for path in profile_files
+      )
+      kernel_to_cycle, total_cycle = diagnose_llama_result(profile_text)
+      print("Profile files:", [str(path) for path in profile_files])
+      print("Parsed kernel count:", len(kernel_to_cycle))
+      if self.kernel_name not in kernel_to_cycle:
+        raise RuntimeError(
+            "Tuned kernel missing from profile: " + self.kernel_name
+        )
       test_res_list = kernel_to_cycle.copy()
       print("Total cycle: ", total_cycle)
+      print("Tuned kernel cycle: ", kernel_to_cycle[self.kernel_name])
       if total_cycle < best_cycle:
         best_cycle = total_cycle
+      iteration_count.value += 1
 
     test_ready_count.value += 1
     test_ready_count_lock.release()
@@ -346,7 +379,8 @@ def signal_handler(self, sig):
 if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
-  args.test_limit = 12
+  args.test_limit = int(os.environ.get("AUTOTUNE_TEST_LIMIT", "12"))
+  os.makedirs('/home/CI/autotune', exist_ok=True)
   with open(get_policy_path(), 'r') as file:
     original_setting = file.readlines()
   signal.signal(signal.SIGINT, signal_handler)

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-import os
-import sys
-import subprocess
-import ast
-import re
 import csv
+import os
+import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
-# 模型名和 dlcutils.py 中对应的方法名映射
+from llamatool import diagnose_llama_result
+
+
+# Model name to the corresponding method in dlcutils.py.
 MODEL_METHOD_MAP = {
     "llama": "get_llama_kernels",
     "tinyllama": "get_tinyllama_kernels",
@@ -17,141 +18,95 @@ MODEL_METHOD_MAP = {
     "deepseek_llama_8b": "get_deepseek_llama_8b_kernels",
 }
 
-if len(sys.argv) != 2:
-    print("Usage: python3 update_kernels.py <model_name>")
-    sys.exit(1)
 
-model_name = sys.argv[1].lower()
-if model_name not in MODEL_METHOD_MAP:
-    print(f"Unknown model name: {model_name}")
-    sys.exit(1)
+def get_latest_ansi(profile_dir):
+    ansi_files = list(profile_dir.glob("*.ansi"))
+    if not ansi_files:
+        raise FileNotFoundError(f"No ANSI files found in {profile_dir}")
+    return max(ansi_files, key=lambda path: path.stat().st_mtime)
 
-method_name = MODEL_METHOD_MAP[model_name]
 
-# 1. 找到最新的 .ansi 文件
-try:
-    latest_file = subprocess.check_output(
-        "ls -1t /tmp/syn/*.ansi | head -n 1", shell=True, text=True
-    ).strip()
-except subprocess.CalledProcessError:
-    print("No ANSI files found in /tmp/syn/")
-    latest_file = None
+def parse_profile(profile_path):
+    profile_text = profile_path.read_text(errors="ignore")
+    kernel_to_cycle, total_cycles = diagnose_llama_result(profile_text)
+    if not kernel_to_cycle or total_cycles <= 0:
+        raise RuntimeError(f"No kernel cycles parsed from {profile_path}")
+    return list(kernel_to_cycle), total_cycles
 
-if latest_file:
-    print(f"Latest ANSI file: {latest_file}")
-else:
-    print("Skipping kernel extraction: no ANSI file found.")
-    latest_file = None
 
-kernel_dict = {}
-total_cycles = None
-cycles_value = None
+def update_dlcutils(dlcutils_path, method_name, kernels):
+    dlc_content = dlcutils_path.read_text()
+    pattern = rf"(def {re.escape(method_name)}\(\):\s*return\s*\[).*?(\])"
+    new_kernels = ",\n    ".join(f'"{kernel}"' for kernel in kernels)
+    new_content, replacements = re.subn(
+        pattern,
+        rf"\1{new_kernels}\2",
+        dlc_content,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if replacements != 1:
+        raise RuntimeError(f"Failed to locate {method_name} in {dlcutils_path}")
+    dlcutils_path.write_text(new_content)
 
-# 2. 运行 tool.py 获取日志（逐行捕获，清理 ANSI）
-if latest_file:
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python3 save_kernels.py <model_name>")
+        return 1
+
+    model_name = sys.argv[1].lower()
+    if model_name not in MODEL_METHOD_MAP:
+        print(f"Unknown model name: {model_name}")
+        return 1
+
+    profile_dir = Path(os.environ.get("DLC_SYN_LOG_DIR", "/tmp/syn"))
+    output_dir = Path(os.environ.get("AUTOTUNE_OUTPUT_DIR", "/home/CI/autotune"))
+    dlcutils_path = Path(__file__).resolve().with_name("dlcutils.py")
+
     try:
-        proc = subprocess.Popen(
-            ["python3", "tool.py", latest_file],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=os.getcwd(),  # 可修改为 tool.py 所在目录
-        )
+        latest_file = get_latest_ansi(profile_dir)
+        print(f"Latest ANSI file: {latest_file}")
+        kernels, total_cycles = parse_profile(latest_file)
 
-        output_lines = []
-        for line in proc.stdout:
-            # 去掉 ANSI 颜色码和回车覆盖字符
-            line_clean = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', line)
-            line_clean = line_clean.replace('\r', '')  # 处理进度条覆盖
-            output_lines.append(line_clean)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        kernels_file = output_dir / f"{model_name}_kernels.txt"
+        cycles_file = output_dir / f"{model_name}_cycles.txt"
+        kernels_file.write_text("".join(f"{kernel}\n" for kernel in kernels))
+        cycles_file.write_text(f"{total_cycles}\n")
 
-        proc.wait()
-        output_clean = "".join(output_lines)
-
-        # 尝试解析 kernel_to_cycle 和 total_cycles
-        kernel_to_cycle_match = re.search(r"kernel_to_cycle:\s*(dict_keys\((.*?)\))", output_clean, re.DOTALL)
-        total_cycles_match = re.search(r"total_cycles:\s*([\d,]+)", output_clean)
-
-        if kernel_to_cycle_match:
-            # 转成列表
-            keys_str = kernel_to_cycle_match.group(2)
-            # ast.literal_eval 解析成 list
-            kernel_dict = ast.literal_eval(keys_str)
-        else:
-            print("Warning: Failed to parse kernel_to_cycle from tool.py output")
-            print("=== tool.py output ===")
-            print(output_clean)
-
-        if total_cycles_match:
-            total_cycles = total_cycles_match.group(1).replace(",", "")
-        else:
-            print("Warning: Failed to parse total_cycles from tool.py output")
-
-    except Exception as e:
-        print(f"Error running tool.py: {e}")
-
-# 3. 保存算子到 txt 文件
-txt_dir = "/home/CI/autotune"
-os.makedirs(txt_dir, exist_ok=True)
-kernels_file = os.path.join(txt_dir, f"{model_name}_kernels.txt")
-cycles_file = os.path.join(txt_dir, f"{model_name}_cycles.txt")
-
-with open(kernels_file, "w") as f:
-    for k in kernel_dict:
-        f.write(k + "\n")
-
-if total_cycles:
-    try:
-        cycles_value = int(total_cycles)
-    except ValueError:
-        cycles_value = None
-
-    with open(cycles_file, "w") as f:
-        f.write(str(total_cycles) + "\n")
-
-    # 追加写入 baseline 历史
-    if cycles_value is not None:
-        baseline_csv = os.path.join(txt_dir, f"{model_name}_baseline_history.csv")
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        file_exists = os.path.exists(baseline_csv)
-        with open(baseline_csv, "a", newline="") as csvfile:
+        baseline_csv = output_dir / f"{model_name}_baseline_history.csv"
+        file_exists = baseline_csv.exists()
+        with baseline_csv.open("a", newline="") as csvfile:
             writer = csv.writer(csvfile)
             if not file_exists:
                 writer.writerow(["date", "cycles"])
-            writer.writerow([date_str, cycles_value])
+            writer.writerow([datetime.now().strftime("%Y-%m-%d"), total_cycles])
 
-print(f"Saved kernels to {kernels_file}")
-if total_cycles:
+        update_dlcutils(
+            dlcutils_path,
+            MODEL_METHOD_MAP[model_name],
+            kernels,
+        )
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    print(f"Saved kernels to {kernels_file}")
     print(f"Total cycles: {total_cycles}")
-else:
-    print(f"No total_cycles available to save to {cycles_file}")
+    print(f"Updated {MODEL_METHOD_MAP[model_name]} in {dlcutils_path}")
 
-# 4. 更新 dlcutils.py 中对应方法
-dlcutils_path = "/home/CI/kernel-opentuner/DLC/dlcutils.py"
-if os.path.exists(dlcutils_path) and kernel_dict:
-    with open(dlcutils_path, "r") as f:
-        dlc_content = f.read()
-
-    pattern = rf"(def {method_name}\(\):\s*return\s*\[).*?(\])"
-    new_kernels_str = ",\n    ".join([f'"{k}"' for k in kernel_dict])
-    new_content = re.sub(pattern, rf"\1{new_kernels_str}\2", dlc_content, flags=re.DOTALL)
-
-    with open(dlcutils_path, "w") as f:
-        f.write(new_content)
-
-    print(f"Updated {method_name} in {dlcutils_path}")
-else:
-    print(f"Skipping dlcutils.py update: file not found or kernel list empty")
-
-# 5. 清理 /tmp/syn 下遗留的 .ansi 文件，免得占满磁盘
-ansi_dir = Path("/tmp/syn")
-if ansi_dir.exists():
     removed = 0
-    for ansi_file in ansi_dir.glob("*.ansi"):
+    for ansi_file in profile_dir.glob("*.ansi"):
         try:
             ansi_file.unlink()
             removed += 1
         except OSError as exc:
             print(f"Warning: failed to remove {ansi_file}: {exc}")
     if removed:
-        print(f"Removed {removed} ANSI log(s) from {ansi_dir}")
+        print(f"Removed {removed} ANSI log(s) from {profile_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
