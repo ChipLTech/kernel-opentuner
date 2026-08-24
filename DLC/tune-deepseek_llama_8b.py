@@ -28,6 +28,7 @@ import subprocess
 import csv
 from datetime import datetime
 from pathlib import Path
+from vllm_profile_runner import DEFAULT_CONFIG, run_profile
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -151,43 +152,13 @@ class KernelFlagsTuner(MeasurementInterface):
       visible_device = os.environ.get("DLC_VISIBLE_DEVICES", "0")
       profile_dir = Path(self.log_root) / ("profile_iter" + str(current_iteration))
       profile_dir.mkdir(parents=True, exist_ok=False)
-      run_cmd = [
-          "vllm", "bench", "throughput",
-          "--model", "/mnt/jfs/ci_models/DeepSeek-R1-Distill-Llama-8B",
-          "--dataset", "/mnt/jfs/dataset/ShareGPT_V3_unfiltered_cleaned_split.json",
-          "--generation-config", "auto",
-          "--override-generation-config", '{"temperature": 0.0}',
-          "--enable-chunked-prefill",
-          "--max-num-batched-tokens", "1024",
-          "--gpu-memory-utilization", "0.95",
-          "--enforce-eager",
-          "--dtype", "bfloat16",
-          "--block-size", "256",
-          "--num-prompts", "256",
-          "--output-len", "4",
-          "--seed", "1024",
-      ]
-      run_env = os.environ.copy()
-      run_env.update({
-          "DLC_VISIBLE_DEVICES": visible_device,
-          "DLC_SYN_DEBUG": "1",
-          "DLC_SYN_VERBOSE": "1",
-          "DLC_SYN_PROF_CYCLE": "1",
-          "DLC_SYN_LOG_DIR": str(profile_dir),
-      })
       print("Executor starts to run the model")
-      print("DLC_VISIBLE_DEVICES:", visible_device)
-      print("Profile directory:", profile_dir)
-
-      run_result = ""
-      with subprocess.Popen(run_cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, bufsize=1,
-                            universal_newlines=True, env=run_env) as p:
-        for line in p.stdout:
-            print(line, end='')
-            run_result += line
-      if p.returncode != 0:
-        raise RuntimeError("Model command failed with exit code " + str(p.returncode))
+      run_result = run_profile(
+          model_name="DeepSeek-R1-Distill-Llama-8B",
+          config_path=os.environ.get("VLLM_MODEL_CONFIG", str(DEFAULT_CONFIG)),
+          profile_dir=profile_dir,
+          device=visible_device,
+      )
       print("Model run finished")
 
       # save the log
