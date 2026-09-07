@@ -7,6 +7,17 @@ import sys
 
 log_path = "/home/CI/autotune"
 
+
+def get_build_jobs():
+  value = os.environ.get("DLC_AUTOTUNE_BUILD_JOBS", "14")
+  try:
+    jobs = int(value)
+  except ValueError:
+    raise ValueError("DLC_AUTOTUNE_BUILD_JOBS must be a positive integer")
+  if jobs <= 0:
+    raise ValueError("DLC_AUTOTUNE_BUILD_JOBS must be a positive integer")
+  return str(jobs)
+
 def get_diff_files(last_commit, current_commit):
   # if last_commit == "":
   #   print("No last commit found")
@@ -119,11 +130,15 @@ if __name__ == '__main__':
   
   # build the dependency files
   build_dir = get_kernel_path() + "build/"
+  build_jobs = get_build_jobs()
+  # The tuner scripts invoke ninja for each candidate without an explicit -j.
+  # Keep the same bound for those subprocesses through Ninja's environment flag.
+  os.environ["NINJAFLAGS"] = "-j" + build_jobs
+  print("ninja build jobs:", build_jobs)
   cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
-  subprocess.run(cmake_cmd.split())
-  ninja_cmd = 'ninja -C {0} syntests'.format(build_dir)
-  subprocess.run(ninja_cmd.split())
-  subprocess.run(['ninja', '-C', build_dir, 'install'])
+  subprocess.run(cmake_cmd.split(), check=True)
+  subprocess.run(['ninja', '-C', build_dir, '-j', build_jobs, 'syntests'], check=True)
+  subprocess.run(['ninja', '-C', build_dir, '-j', build_jobs, 'install'], check=True)
     
   if tune_llama:
     candidate_kernel = get_llama_kernels()

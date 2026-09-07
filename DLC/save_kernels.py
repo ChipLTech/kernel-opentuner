@@ -23,7 +23,19 @@ def get_latest_ansi(profile_dir):
     ansi_files = list(profile_dir.glob("*.ansi"))
     if not ansi_files:
         raise FileNotFoundError(f"No ANSI files found in {profile_dir}")
-    return max(ansi_files, key=lambda path: path.stat().st_mtime)
+
+    parse_errors = []
+    for path in sorted(ansi_files, key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            kernels, total_cycles = parse_profile(path)
+        except (OSError, UnicodeError, RuntimeError) as exc:
+            parse_errors.append(f"{path.name}: {exc}")
+            continue
+        if kernels and total_cycles > 0:
+            return path
+
+    details = "; ".join(parse_errors)
+    raise RuntimeError(f"No parseable ANSI profile found in {profile_dir}: {details}")
 
 
 def parse_profile(profile_path):
