@@ -356,7 +356,7 @@ def signal_handler(self, sig):
 if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
-  args.test_limit = 12
+  args.test_limit = int(os.environ.get("AUTOTUNE_TEST_LIMIT", "12"))
   # args.stop_after = 3 * 60 # 3min
   with open(get_policy_path(), 'r') as file:
     original_setting = file.readlines()
