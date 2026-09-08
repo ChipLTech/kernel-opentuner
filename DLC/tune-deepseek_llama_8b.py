@@ -29,6 +29,7 @@ import csv
 from datetime import datetime
 from pathlib import Path
 from vllm_profile_runner import DEFAULT_CONFIG, run_profile
+from autotune_sync import run_worker, signal_abort, wait_for_counter
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -120,8 +121,7 @@ class KernelFlagsTuner(MeasurementInterface):
       if self.is_executor:
         build_dir = get_kernel_path() + "build/"
         cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
-        while compile_ready_count.value != self.total_kernel:
-          pass
+        wait_for_counter(compile_ready_count, self.total_kernel, "compile barrier")
         cmake_res = self.call_program(cmake_cmd)
         assert cmake_res['returncode'] == 0
         print("CMake finished")
@@ -135,8 +135,7 @@ class KernelFlagsTuner(MeasurementInterface):
         compile_ready_count.value = 0
         compile_ready_count_lock.release()
       else:
-        while compile_ready_count.value != 0:
-          pass
+        wait_for_counter(compile_ready_count, 0, "compile completion")
       return {'returncode': 0, 'stdout': '', 'stderr': '', 'timeout': False, 'time': 0.1}
 
   def run_precompiled(self, desired_result, input, limit, compile_result, id):
@@ -145,7 +144,6 @@ class KernelFlagsTuner(MeasurementInterface):
     """
     global test_res_list
     global best_cycle
-    test_ready_count_lock.acquire()
     # only one thread is allowed to run the model
     if self.is_executor:
       current_iteration = iteration_count.value
@@ -187,18 +185,17 @@ class KernelFlagsTuner(MeasurementInterface):
         best_cycle = total_cycle
       iteration_count.value += 1
 
+    test_ready_count_lock.acquire()
     test_ready_count.value += 1
     test_ready_count_lock.release()
 
     if self.is_executor:
-      while test_ready_count.value != self.total_kernel:
-        pass
+      wait_for_counter(test_ready_count, self.total_kernel, "model test barrier")
       test_ready_count_lock.acquire()
       test_ready_count.value = 0
       test_ready_count_lock.release()
     else:
-      while test_ready_count.value != 0:
-        pass
+      wait_for_counter(test_ready_count, 0, "model test completion")
     cycle = self.handle_results(test_res_list[self.kernel_name])
     return Result(time = cycle)
 
@@ -234,15 +231,13 @@ class KernelFlagsTuner(MeasurementInterface):
     compile_ready_count_lock.release()
 
     if self.is_executor:
-      while compile_ready_count.value != self.total_kernel:
-        pass
+      wait_for_counter(compile_ready_count, self.total_kernel, "strategy barrier")
       subprocess.call("cp " + get_policy_path() + " " + self.log_root + "strategy_iter" + str(iteration_count.value - 1) + ".csv", shell=True)
       compile_ready_count_lock.acquire()
       compile_ready_count.value = 0
       compile_ready_count_lock.release()
     else:
-      while compile_ready_count.value != 0:
-        pass
+      wait_for_counter(compile_ready_count, 0, "strategy completion")
 
   def execute(cmd):
     popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
@@ -339,10 +334,14 @@ class MultiKernelTuner():
       self.kernel_params.append(single_parg)
 
   def main(self):
-    self.thread_pool.map(KernelFlagsTuner.main, self.kernel_params)
-    self.thread_pool.close()
+    try:
+      self.thread_pool.map(run_worker, [(KernelFlagsTuner.main, params) for params in self.kernel_params])
+    finally:
+      self.thread_pool.close()
+      self.thread_pool.join()
 
 def signal_handler(self, sig):
+  signal_abort("signal interrupt")
   print(self.get_prefix(), "Caught signal", sig, "write the original setting back")
   with open(get_policy_path(), 'w') as file:
     file.writelines(original_setting)

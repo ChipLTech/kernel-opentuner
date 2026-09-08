@@ -24,6 +24,7 @@ from ctypes import c_int
 import copy
 import os
 import signal
+from autotune_sync import run_worker, signal_abort, wait_for_counter
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -113,8 +114,7 @@ class KernelFlagsTuner(MeasurementInterface):
       if self.is_executor:
         build_dir = get_kernel_path() + "build/"
         cmake_cmd = 'cmake -G Ninja -S {0} -B {1}'.format(get_kernel_path(), build_dir)
-        while compile_ready_count.value != self.total_kernel:
-          pass
+        wait_for_counter(compile_ready_count, self.total_kernel, "compile barrier")
         cmake_res = self.call_program(cmake_cmd)
         assert cmake_res['returncode'] == 0
         print("CMake finished")
@@ -128,8 +128,7 @@ class KernelFlagsTuner(MeasurementInterface):
         compile_ready_count.value = 0
         compile_ready_count_lock.release()
       else:
-        while compile_ready_count.value != 0:
-          pass
+        wait_for_counter(compile_ready_count, 0, "compile completion")
       return {'returncode': 0, 'stdout': '', 'stderr': '', 'timeout': False, 'time': 0.1}
 
   def run_precompiled(self, desired_result, input, limit, compile_result, id):
@@ -174,25 +173,21 @@ class KernelFlagsTuner(MeasurementInterface):
       self.old_performance = self.run_precompiled(Result(time = 0), None, 0, 0, 0).time
       self.best_cycle = self.old_performance
       if self.is_executor:
-        while test_ready_count.value != self.total_kernel:
-          pass
+        wait_for_counter(test_ready_count, self.total_kernel, "kernel test barrier")
         test_ready_count_lock.acquire()
         test_ready_count.value = 0
         test_ready_count_lock.release()
       else:
-        while test_ready_count.value != 0:
-          pass
+        wait_for_counter(test_ready_count, 0, "kernel test completion")
       
   def post_process(self):
     if self.is_executor:
-      while test_ready_count.value != self.total_kernel:
-        pass
+      wait_for_counter(test_ready_count, self.total_kernel, "kernel test barrier")
       test_ready_count_lock.acquire()
       test_ready_count.value = 0
       test_ready_count_lock.release()
     else:
-      while test_ready_count.value != 0:
-        pass
+      wait_for_counter(test_ready_count, 0, "kernel test completion")
   
   def save_final_config(self, configuration):
     """called at the end of tuning"""
@@ -284,10 +279,14 @@ class MultiKernelTuner():
       self.kernel_params.append(single_parg)
       
   def main(self):
-    self.thread_pool.map(KernelFlagsTuner.main, self.kernel_params)
-    self.thread_pool.close()      
+    try:
+      self.thread_pool.map(run_worker, [(KernelFlagsTuner.main, params) for params in self.kernel_params])
+    finally:
+      self.thread_pool.close()
+      self.thread_pool.join()
     
 def signal_handler(self, sig):
+  signal_abort("signal interrupt")
   print(self.get_prefix(), "Caught signal", sig, "write the original setting back")
   with open(get_policy_path(), 'w') as file:
     file.writelines(original_setting)
