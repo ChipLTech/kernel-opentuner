@@ -22,13 +22,17 @@ import multiprocessing
 from dlcutils import *
 from ctypes import c_int
 import copy
+import json
 import os
 import signal
 import subprocess
 import csv
+import shutil
 from datetime import datetime
 from pathlib import Path
 from autotune_sync import run_worker, signal_abort, wait_for_counter
+from vllm_profile_runner import DEFAULT_CONFIG, run_profile
+from vllm_throughput import parse_throughput
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -36,7 +40,7 @@ parser.add_argument('--kernel', help='kernel name to tune')
 
 # manager = Manager()
 test_res_list = {}
-best_cycle = 2 ** 63 - 1
+best_score = float("inf")
 
 # sync across processes
 compile_ready_count = multiprocessing.Value(c_int, 0)
@@ -44,6 +48,7 @@ compile_ready_count_lock = multiprocessing.Lock()
 test_ready_count = multiprocessing.Value(c_int, 0)
 test_ready_count_lock = multiprocessing.Lock()
 iteration_count = multiprocessing.Value(c_int, 0)
+MODEL_ID = os.environ.get("MODEL", "deepseek_qwen_7b")
 
 class KernelFlagsTuner(MeasurementInterface):
   def __init__(self, *pargs, **kwargs):
@@ -55,7 +60,7 @@ class KernelFlagsTuner(MeasurementInterface):
     self.log_root = pargs[0].log_root
     self.log_path = pargs[0].log_path
     self.best_res = pargs[0].best_res
-    self.best_cycle = 2 ** 32
+    self.best_score = float("inf")
     self.stragegy_path = get_policy_path()
     self.line_number, content = get_line_number(self.stragegy_path, self.kernel_name)
     info = ""
@@ -85,7 +90,7 @@ class KernelFlagsTuner(MeasurementInterface):
     # print(info)
     # compare to current setting
     self.old_flag = self.opt_flag.copy()
-    self.old_performance = 0
+    self.old_performance = None
     self.old_better = True
 
   def manipulator(self):
@@ -145,70 +150,39 @@ class KernelFlagsTuner(MeasurementInterface):
     Run a compile_result from compile() sequentially and return performance
     """
     global test_res_list
-    global best_cycle
+    global best_score
     # only one thread is allowed to run the model
     if self.is_executor:
       current_iteration = iteration_count.value
       visible_device = os.environ.get("DLC_VISIBLE_DEVICES", "0")
       profile_dir = Path(self.log_root) / ("profile_iter" + str(current_iteration))
       profile_dir.mkdir(parents=True, exist_ok=False)
-      run_cmd = [
-          "python3", "sft_trainer.py",
-          "--device=dlc",
-          "--model=/mnt/jfs/ci_models/DeepSeek-R1-Distill-Qwen-7B",
-          "--max_seq_length=256",
-          "--dtype=bfloat16",
-          "--dropout=0.05",
-      ]
-      run_env = os.environ.copy()
-      run_env.update({
-          "ACCELERATE_TORCH_DEVICE": "dlc",
-          "DLC_VISIBLE_DEVICES": visible_device,
-          "DLC_SYN_DEBUG": "1",
-          "DLC_SYN_VERBOSE": "1",
-          "DLC_SYN_PROF_CYCLE": "1",
-          "DLC_SYN_LOG_DIR": str(profile_dir),
-      })
+      policy_path = Path(get_policy_path())
+      if policy_path.exists():
+        shutil.copyfile(policy_path, profile_dir / "executed_strategy.csv")
       print("Executor starts to run the model")
       print("DLC_VISIBLE_DEVICES:", visible_device)
       print("Profile directory:", profile_dir)
-      
-      run_result = ""
-      with subprocess.Popen(run_cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, bufsize=1,
-                            universal_newlines=True, cwd=get_llama_path(),
-                            env=run_env) as p:
-        for line in p.stdout:
-            print(line, end='')
-            run_result += line
-      if p.returncode != 0:
-        raise RuntimeError("Model command failed with exit code " + str(p.returncode))
-      print("Model run finished")
-      
-      # save the log
-      with open(self.log_root + "deepseek_qwen_7b_iter" + str(current_iteration) + ".log", 'w') as f:
-        f.write(run_result)
-      print("Log saved")
-      
-      # analyze the result
-      profile_files = sorted(profile_dir.glob("*.ansi"))
-      if not profile_files:
-        raise RuntimeError("No ANSI profile generated in " + str(profile_dir))
-      profile_text = "\n".join(
-          path.read_text(errors="ignore") for path in profile_files
+      run_result = run_profile(
+          model_name=os.environ.get(
+              "VLLM_PROFILE_MODEL_NAME",
+              "DeepSeek-R1-Distill-Qwen-7B-32prompt-temperature0.5",
+          ),
+          config_path=os.environ.get("VLLM_MODEL_CONFIG", str(DEFAULT_CONFIG)),
+          profile_dir=profile_dir,
+          device=visible_device,
+          model_path=os.environ.get("VLLM_PROFILE_MODEL_PATH"),
       )
-      kernel_to_cycle, total_cycle = diagnose_llama_result(profile_text)
-      print("Profile files:", [str(path) for path in profile_files])
-      print("Parsed kernel count:", len(kernel_to_cycle))
-      if self.kernel_name not in kernel_to_cycle:
-        raise RuntimeError(
-            "Tuned kernel missing from profile: " + self.kernel_name
-        )
-      test_res_list = kernel_to_cycle.copy()
-      print("Total cycle: ", total_cycle)
-      print("Tuned kernel cycle: ", kernel_to_cycle[self.kernel_name])
-      if total_cycle < best_cycle:
-        best_cycle = total_cycle
+      with open(self.log_root + MODEL_ID + "_iter" + str(current_iteration) + ".log", "w") as f:
+        f.write(run_result)
+      metrics = parse_throughput(run_result)
+      with (profile_dir / "throughput_metrics.json").open("w") as f:
+        json.dump(metrics, f, indent=2, allow_nan=False)
+      print(
+          "Model run finished: total tokens/s=%.3f output tokens/s=%.3f"
+          % (metrics["total_tokens_per_s"], metrics["output_tokens_per_s"])
+      )
+      test_res_list = metrics
       iteration_count.value += 1
     
     test_ready_count_lock.acquire()
@@ -223,8 +197,9 @@ class KernelFlagsTuner(MeasurementInterface):
       test_ready_count_lock.release()
     else:
       wait_for_counter(test_ready_count, 0, "model test completion")
-    cycle = self.handle_results(test_res_list[self.kernel_name])
-    return Result(time = cycle)
+    self.last_metrics = test_res_list.copy()
+    score = self.handle_results(test_res_list["score"])
+    return Result(time=score)
 
   def compile_and_run(self, desired_result, input, limit):
     """
@@ -246,10 +221,10 @@ class KernelFlagsTuner(MeasurementInterface):
   
   def pre_process(self):
     # we need to record the current perfmance
-    if self.old_performance == 0:
+    if self.old_performance is None:
       # print(self.get_prefix() + "Testing current setting")
       self.old_performance = self.run_precompiled(Result(time = 0), None, 0, 0, 0).time
-      self.best_cycle = self.old_performance
+      self.best_score = self.old_performance
       
   def post_process(self):
     # every_iteraton, we need to save the best result
@@ -283,16 +258,18 @@ class KernelFlagsTuner(MeasurementInterface):
       print(self.get_prefix(), "The original setting is better")
       self.opt_flag = self.old_flag.copy()
     else:
-      print(self.get_prefix(), "Optimal compiling flag is:", configuration.data)
-      for key in configuration.data:
-        self.opt_flag[key] = configuration.data[key]
+      # Persist the strategy that produced the best measured throughput, not
+      # the final OpenTuner trial (which may be worse than the winner).
+      self.opt_flag = self.best_opt_flag.copy()
+      print(self.get_prefix(), "Optimal compiling flag is:", self.opt_flag)
     with open(self.best_res, 'w') as f:
       if self.old_better:
         f.write("Original setting is better\n")
       else:
         f.write("Find a better setting\n")
       f.write("The best setting is: " + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
-      f.write("The performance is: " + str(self.best_cycle) + "\n")
+      best_total = -self.best_score if self.best_score < 0 else 0.0
+      f.write("Best total tokens/s: " + str(best_total) + "\n")
     compile_ready_count_lock.acquire()
     change_policy_file(self.line_number, self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "\n")
     compile_ready_count_lock.release()
@@ -320,20 +297,28 @@ class KernelFlagsTuner(MeasurementInterface):
   def get_prefix(self):
     return "[" + self.kernel_name + "]"
   
-  def handle_results(self, cycle):
-    if self.old_better and cycle < self.old_performance:
+  def handle_results(self, score):
+    global best_score
+    if self.old_performance is None:
+      self.old_performance = score
+    if self.old_better and score < self.old_performance:
       self.old_better = False
-    if cycle < self.best_cycle:
-      self.best_cycle = cycle
+    if score < self.best_score:
+      self.best_score = score
       self.best_opt_flag = self.opt_flag.copy()
-    print(self.get_prefix(), "Number of cycles: ", cycle)
+    if score < best_score:
+      best_score = score
+    metrics = getattr(self, "last_metrics", {})
+    total = metrics.get("total_tokens_per_s", -score)
+    output = metrics.get("output_tokens_per_s", "")
+    print(self.get_prefix(), "Total tokens/s: ", total)
     
     # keep another record in log file
     with open(self.log_path, 'a') as f:
-      f.write(self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "," + str(cycle) + "\n")
-      f.write(self.get_prefix() + "Total run: " + str(cycle) + " cycles\n")
-    
-    return cycle
+      f.write(self.kernel_name + "," + ",".join([str(self.opt_flag[key]) for key in opt_dim]) + "," + str(total) + "," + str(output) + "\n")
+      f.write(self.get_prefix() + "Total tokens/s: " + str(total) + "\n")
+
+    return score
 
 class MultiKernelTuner():
   def __init__(self, *pargs, **kwargs):
@@ -389,8 +374,8 @@ if __name__ == '__main__':
 
   date = datetime.now().strftime("%Y-%m-%d")
   new_data = [
-      {"date": date, "cycles": best_cycle}
+      {"date": date, "total_tokens_per_s": -best_score if best_score < 0 else 0.0}
   ]
-  with open('/home/CI/autotune/cycles_data_deepseek_qwen_7b.csv', 'a', newline='') as csvfile:
-      writer = csv.DictWriter(csvfile, fieldnames=['date', 'cycles'])
+  with open('/home/CI/autotune/throughput_data_' + MODEL_ID + '.csv', 'a', newline='') as csvfile:
+      writer = csv.DictWriter(csvfile, fieldnames=['date', 'total_tokens_per_s'])
       writer.writerows(new_data)

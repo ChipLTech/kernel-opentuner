@@ -91,6 +91,7 @@ if __name__ == '__main__':
   tune_gemma = True if 'gemma' in sys.argv else False
   tune_tinyllama = True if 'tinyllama' in sys.argv else False
   tune_deepseek_qwen_7b = True if 'deepseek_qwen_7b' in sys.argv else False
+  tune_qwen3_8b = True if 'qwen3_8b' in sys.argv else False
   tune_deepseek_llama_8b = True if 'deepseek_llama_8b' in sys.argv else False
   if tune_llama:
     print("*********** Start to tune with llama ***********")
@@ -100,6 +101,8 @@ if __name__ == '__main__':
     print("*********** Start to tune with tinyllama ***********")
   elif tune_deepseek_qwen_7b:
     print("*********** Start to tune with deepseek_qwen_7b ***********")
+  elif tune_qwen3_8b:
+    print("*********** Start to tune with qwen3_8b ***********")
   elif tune_deepseek_llama_8b:
     print("*********** Start to tune with deepseek_llama_8b ***********")
   else:
@@ -151,6 +154,9 @@ if __name__ == '__main__':
     script = 'tune-tinyllama.py'
   elif tune_deepseek_qwen_7b:
     candidate_kernel = get_deepseek_qwen_7b_kernels()
+    script = 'tune-deepseek_qwen_7b.py'
+  elif tune_qwen3_8b:
+    candidate_kernel = get_qwen3_8b_kernels()
     script = 'tune-deepseek_qwen_7b.py'
   elif tune_deepseek_llama_8b:
     candidate_kernel = get_deepseek_llama_8b_kernels()

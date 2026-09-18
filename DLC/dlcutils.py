@@ -298,6 +298,12 @@ def get_deepseek_qwen_7b_kernels():
     "arange_int64"]
 
 
+def get_qwen3_8b_kernels():
+  # The first run replaces this seed list with the kernels observed in the
+  # Qwen3-8B vLLM profile via save_kernels.py.
+  return get_deepseek_qwen_7b_kernels()
+
+
 def get_deepseek_llama_8b_kernels():
     return ["matmul_t_bf16_pingpong",
     "fused_qkv_and_rotary_embedding_bf16",
