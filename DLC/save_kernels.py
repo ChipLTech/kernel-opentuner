@@ -49,14 +49,28 @@ def parse_profile(profile_path):
 
 def update_dlcutils(dlcutils_path, method_name, kernels):
     dlc_content = dlcutils_path.read_text()
-    pattern = rf"(def {re.escape(method_name)}\(\):\s*return\s*\[).*?(\])"
-    new_kernels = ",\n    ".join(f'"{kernel}"' for kernel in kernels)
+    if not kernels:
+        raise ValueError(f"No kernels found for {method_name}")
+
+    # Replace the complete function body.  The seed implementation may return
+    # another model's list before the first profile, so matching only
+    # ``return [...]`` misses the real Qwen3 function.
+    pattern = re.compile(
+        rf"^def {re.escape(method_name)}\(\):\n.*?(?=^def |\Z)",
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    kernel_lines = "".join(f'        "{kernel}",\n' for kernel in kernels)
+    replacement = (
+        f"def {method_name}():\n"
+        "    return [\n"
+        f"{kernel_lines}"
+        "    ]\n\n"
+    )
     new_content, replacements = re.subn(
         pattern,
-        rf"\1{new_kernels}\2",
+        lambda _: replacement,
         dlc_content,
         count=1,
-        flags=re.DOTALL,
     )
     if replacements != 1:
         raise RuntimeError(f"Failed to locate {method_name} in {dlcutils_path}")
