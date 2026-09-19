@@ -26,13 +26,12 @@ import json
 import os
 import signal
 import subprocess
-import csv
 import shutil
 from datetime import datetime
 from pathlib import Path
 from autotune_sync import run_worker, signal_abort, wait_for_counter
 from vllm_profile_runner import DEFAULT_CONFIG, run_profile
-from vllm_throughput import parse_throughput
+from vllm_throughput import append_throughput_history, parse_throughput
 
 
 parser = argparse.ArgumentParser(parents=opentuner.argparsers())
@@ -363,7 +362,8 @@ if __name__ == '__main__':
   args = parser.parse_args()
   args.parallelism = 1
   args.test_limit = int(os.environ.get("AUTOTUNE_TEST_LIMIT", "12"))
-  os.makedirs('/home/CI/autotune', exist_ok=True)
+  output_dir = Path(os.environ.get("AUTOTUNE_OUTPUT_DIR", "/home/CI/autotune"))
+  output_dir.mkdir(parents=True, exist_ok=True)
   # args.stop_after = 3 * 60 # 3min
   with open(get_policy_path(), 'r') as file:
     original_setting = file.readlines()
@@ -376,6 +376,8 @@ if __name__ == '__main__':
   new_data = [
       {"date": date, "total_tokens_per_s": -best_score if best_score < 0 else 0.0}
   ]
-  with open('/home/CI/autotune/throughput_data_' + MODEL_ID + '.csv', 'a', newline='') as csvfile:
-      writer = csv.DictWriter(csvfile, fieldnames=['date', 'total_tokens_per_s'])
-      writer.writerows(new_data)
+  append_throughput_history(
+      output_dir / ('throughput_data_' + MODEL_ID + '.csv'),
+      date,
+      new_data[0]["total_tokens_per_s"],
+  )

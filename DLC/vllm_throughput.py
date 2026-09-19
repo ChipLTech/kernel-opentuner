@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 import re
+import csv
+from pathlib import Path
 from typing import Iterable, Mapping
 
 
@@ -49,3 +51,24 @@ def select_best_total(records: Iterable[Mapping[str, float]]) -> Mapping[str, fl
         if not math.isfinite(total) or total <= 0:
             raise ValueError("throughput records must contain finite positive totals")
     return max(candidates, key=lambda record: float(record["total_tokens_per_s"]))
+
+
+def append_throughput_history(path: Path, date: str, total_tokens_per_s: float) -> None:
+    """Append one measured throughput row, creating a CSV header if needed."""
+    total = float(total_tokens_per_s)
+    if not math.isfinite(total) or total <= 0:
+        raise ValueError("throughput history requires a finite positive total")
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="") as csvfile:
+        writer = csv.DictWriter(
+            csvfile, fieldnames=["date", "total_tokens_per_s"]
+        )
+        if write_header:
+            writer.writeheader()
+        writer.writerow({
+            "date": date,
+            "total_tokens_per_s": f"{total:.2f}",
+        })

@@ -1,6 +1,13 @@
+import csv
+import tempfile
 import unittest
+from pathlib import Path
 
-from DLC.vllm_throughput import parse_throughput, select_best_total
+from DLC.vllm_throughput import (
+    append_throughput_history,
+    parse_throughput,
+    select_best_total,
+)
 from DLC.vllm_profile_runner import build_command, load_model_config
 
 
@@ -46,6 +53,20 @@ class VllmThroughputTests(unittest.TestCase):
         best = select_best_total(records)
         self.assertEqual(best["candidate"], "candidate-a")
         self.assertEqual(best["output_tokens_per_s"], 51.0)
+
+    def test_appends_shareable_throughput_history_with_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "throughput_data_qwen3_8b.csv"
+            append_throughput_history(path, "2026-09-19", 962.77)
+            append_throughput_history(path, "2026-09-20", 970.25)
+
+            with path.open(newline="") as csvfile:
+                rows = list(csv.DictReader(csvfile))
+
+        self.assertEqual(rows, [
+            {"date": "2026-09-19", "total_tokens_per_s": "962.77"},
+            {"date": "2026-09-20", "total_tokens_per_s": "970.25"},
+        ])
 
 
 if __name__ == "__main__":
