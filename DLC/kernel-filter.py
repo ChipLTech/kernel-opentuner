@@ -5,7 +5,10 @@ import os
 import random
 import sys
 
-log_path = "/home/CI/autotune"
+# Baseline and tuning run in separate Pods.  Keep the log root on the shared
+# CI volume so the tune step sees the profile-derived Qwen3 kernel list.
+log_path = os.environ.get("AUTOTUNE_OUTPUT_DIR", "/home/CI/autotune").rstrip("/")
+os.makedirs(log_path, exist_ok=True)
 
 
 def get_build_jobs():
