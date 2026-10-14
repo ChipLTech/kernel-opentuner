@@ -1,6 +1,7 @@
 import csv
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from DLC.vllm_throughput import (
@@ -8,10 +9,39 @@ from DLC.vllm_throughput import (
     parse_throughput,
     select_best_total,
 )
-from DLC.vllm_profile_runner import build_command, load_model_config
+from DLC.vllm_profile_runner import build_command, load_model_config, run_profile
 
 
 class VllmThroughputTests(unittest.TestCase):
+    def test_off_mode_keeps_workload_and_uses_the_assigned_card(self):
+        class Process:
+            stdout = ["fixture throughput\n"]
+            returncode = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            "os.environ", {"VLLM_PROFILE_MAX_NUM_BATCHED_TOKENS": "4096"}
+        ), patch("DLC.vllm_profile_runner.subprocess.Popen", return_value=Process()) as launch:
+            run_profile("Qwen3-8B", "missing.json", temp, "5", "/models/Qwen3-8B", profiling="off")
+            command = launch.call_args.args[0]
+            env = launch.call_args.kwargs["env"]
+        self.assertEqual(command[command.index("--max-num-batched-tokens") + 1], "4096")
+        self.assertEqual(env["DLC_VISIBLE_DEVICES"], "5")
+        for key in ("DLC_SYN_DEBUG", "DLC_SYN_VERBOSE", "DLC_SYN_PROF_CYCLE"):
+            self.assertEqual(env[key], "0")
+
+    def test_r4_workload_honors_batched_token_setting(self):
+        with patch.dict("os.environ", {"VLLM_PROFILE_MAX_NUM_BATCHED_TOKENS": "4096"}):
+            model = load_model_config("missing.json", "Qwen3-8B", model_path="/models/Qwen3-8B")
+        command = build_command(model)
+        self.assertEqual(command[command.index("--max-num-batched-tokens") + 1], "4096")
+
+    def test_other_callers_keep_their_existing_batched_token_default(self):
+        command = build_command({"model_path": "/model", "dataset": "/dataset"})
+        self.assertEqual(command[command.index("--max-num-batched-tokens") + 1], "1024")
+
     def test_qwen3_path_can_bypass_external_model_registry(self):
         model = load_model_config(
             "/tmp/missing-benchmark-models.json",

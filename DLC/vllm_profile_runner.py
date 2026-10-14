@@ -25,6 +25,7 @@ def load_model_config(config_path, model_name, model_path=None):
         "output_len": os.environ.get("VLLM_PROFILE_OUTPUT_LEN", "512"),
         "temperature": os.environ.get("VLLM_PROFILE_TEMPERATURE", "0.0"),
         "use_col_major": os.environ.get("VLLM_USE_DLC_COL_MAJOR_MATMUL", "1"),
+        "max_num_batched_tokens": os.environ.get("VLLM_PROFILE_MAX_NUM_BATCHED_TOKENS", "1024"),
     }
 
   with Path(config_path).open() as config_file:
@@ -55,7 +56,7 @@ def build_command(model):
       "--override-generation-config",
       json.dumps({"temperature": float(model.get("temperature") or 0)}),
       "--enable-chunked-prefill",
-      "--max-num-batched-tokens", "1024",
+      "--max-num-batched-tokens", str(model.get("max_num_batched_tokens") or 1024),
       "--gpu-memory-utilization", "0.95",
       "--enforce-eager",
       "--dtype", dtype,
@@ -71,7 +72,9 @@ def build_command(model):
   return command
 
 
-def run_profile(model_name, config_path, profile_dir, device, model_path=None):
+def run_profile(model_name, config_path, profile_dir, device, model_path=None, profiling="on"):
+  if profiling not in ("on", "off"):
+    raise ValueError("profiling must be on or off")
   model = load_model_config(config_path, model_name, model_path=model_path)
   command = build_command(model)
   profile_dir = Path(profile_dir)
@@ -81,9 +84,9 @@ def run_profile(model_name, config_path, profile_dir, device, model_path=None):
   run_env.update({
       "DLC_VISIBLE_DEVICES": device,
       "VLLM_USE_DLC_COL_MAJOR_MATMUL": str(model.get("use_col_major") or 1),
-      "DLC_SYN_DEBUG": "1",
-      "DLC_SYN_VERBOSE": "1",
-      "DLC_SYN_PROF_CYCLE": "1",
+      "DLC_SYN_DEBUG": "1" if profiling == "on" else "0",
+      "DLC_SYN_VERBOSE": "1" if profiling == "on" else "0",
+      "DLC_SYN_PROF_CYCLE": "1" if profiling == "on" else "0",
       "DLC_SYN_LOG_DIR": str(profile_dir),
   })
 
@@ -92,6 +95,9 @@ def run_profile(model_name, config_path, profile_dir, device, model_path=None):
   print("DLC_VISIBLE_DEVICES:", device)
   print("Profile directory:", profile_dir)
   print("Command:", " ".join(command))
+  print("Benchmark instrumentation:", json.dumps({
+      key: run_env[key] for key in ("DLC_SYN_DEBUG", "DLC_SYN_VERBOSE", "DLC_SYN_PROF_CYCLE")
+  }), flush=True)
 
   output = ""
   with subprocess.Popen(
@@ -122,6 +128,7 @@ def main():
   )
   parser.add_argument("--profile-dir", required=True)
   parser.add_argument("--model-path", default=os.environ.get("VLLM_PROFILE_MODEL_PATH"))
+  parser.add_argument("--profiling", choices=("on", "off"), default="on")
   parser.add_argument(
       "--device",
       default=os.environ.get("DLC_VISIBLE_DEVICES", "0"),
@@ -134,6 +141,7 @@ def main():
       profile_dir=args.profile_dir,
       device=args.device,
       model_path=args.model_path,
+      profiling=args.profiling,
   )
 
 

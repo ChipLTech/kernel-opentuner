@@ -120,7 +120,8 @@ if __name__ == '__main__':
   print("most recent commit:", most_recent_commit)
     
   # pull the newest commit
-  subprocess.run(['git', 'pull'])
+  if os.environ.get("REQUIRE_SOURCE_SNAPSHOT") != "true":
+    subprocess.run(['git', 'pull'], check=True)
   # subprocess.run(['rm', '-rf', log_path + '/logs/*'])
   
   # get the commit hash of the newest commit
@@ -204,5 +205,5 @@ if __name__ == '__main__':
   subprocess.run(['mkdir', '-p', new_log_dir + "/tunerDB"])
   database_param = "--database=" + new_log_dir + "/tunerDB"
   print("*********** Start to tune ***********")
-  subprocess.run(['python3', cur_dir + '/' + script, kernel_param, database_param])
+  subprocess.run(['python3', cur_dir + '/' + script, kernel_param, database_param], check=True)
   subprocess.run(['cp', get_policy_path(), new_log_dir]) 
