@@ -67,29 +67,41 @@ def remove_ansi(sometext):
 
 def get_kernel_launches(text: str):
     r1 = re.compile(r'─────────────────────────────────────────────────────────────────────────────────── launch  (\w+) ')
-    r2 = re.compile(r'─────────────────────────────────────────────────────────────────────────────────── cycles(.*)\n')
+    r2 = re.compile(
+        r'─────────────────────────────────────────────────────────────────────────────────── '
+        r'(?:batch_id:\s+\d+\s+kernel_index:\s+\d+\s+kernel_name:\s+(\w+)\s+)?cycles:'
+    )
+    cycle_fields = re.compile(r'\bcycles:')
 
     lines = text.splitlines(keepends=True)
     name: str = ''
     tmp = []
     results_cycle: list[Metric] = []
-    results_nocycle: list[Metric] = []
     for line in lines:
-        if name:
-            if r2.match(line):
-                m = Metric(name, remove_ansi(''.join(tmp)))
-                if m.match(line):
-                    results_cycle.append(m)
-                else:
-                    results_nocycle.append(m)
+        control = remove_ansi(line) if '\x1b' in line else line
+        if r:=r1.match(control):
+            name = r.group(1)
+            tmp.clear()
+        elif r:=r2.match(control):
+            # Reject concatenated summaries rather than mixing their names and counters.
+            if len(cycle_fields.findall(control)) != 1:
                 name = ''
                 tmp.clear()
-            else:
-                tmp.append(line)
-        elif r:=r1.match(line):
-            name = r.group(1)
+                continue
+            # Named summaries are authoritative, even when batches finish out of order.
+            cycle_name = r.group(1) or name
+            if cycle_name:
+                body = remove_ansi(''.join(tmp)) if cycle_name == name else ''
+                m = Metric(cycle_name, body)
+                if m.match(control):
+                    results_cycle.append(m)
+            if cycle_name == name:
+                name = ''
+                tmp.clear()
+        elif name:
+            tmp.append(line)
     # print("results_cycle: \n", results_cycle)
-    return results_cycle if results_cycle else results_nocycle
+    return results_cycle
 
 def process_log(in_file, out_file) -> str:
     print(f'{in_file} -> {out_file}')
