@@ -510,6 +510,9 @@ class HardwareEvaluator:
         self.cache, self.counter, self.workload = {}, 0, None
         self.environment = dict(os.environ)
         self.environment.update({
+            # setproctitle otherwise overwrites the environment memory read via /proc.
+            # Preserve it before spawning so the worker checks below remain valid.
+            'SPT_NOENV': '1',
             'DLC_VISIBLE_DEVICES': args.device, 'CHIPLTECH_VISIBLE_DEVICES': args.device,
             'VLLM_TARGET_DEVICE': 'dlc', 'VLLM_PROFILE_MAX_NUM_BATCHED_TOKENS': '4096',
             'VLLM_PROFILE_NUM_PROMPTS': '32', 'VLLM_PROFILE_OUTPUT_LEN': '512',
@@ -663,7 +666,11 @@ class HardwareEvaluator:
                             keys = ('DLC_SYN_DEBUG', 'DLC_SYN_VERBOSE', 'DLC_SYN_PROF_CYCLE',
                                     'DLC_VISIBLE_DEVICES', 'VLLM_USE_DLC_COL_MAJOR_MATMUL')
                             flags = {k: env.get(k.encode(), b'').decode() for k in keys}
-                            if flags != {k: self.environment[k] for k in keys}:
+                            expected_flags = {k: self.environment[k] for k in keys}
+                            if flags != expected_flags:
+                                result['worker_environment'] = {
+                                    'pid': int(pid), 'expected': expected_flags, 'actual': flags,
+                                }
                                 raise IntegrityFailure('Worker device, instrumentation or layout differs')
                             loaded.update(pid=int(pid), pgid=pgid, inode=info.st_ino,
                                           device=info.st_dev, path=str(self.library), flags=flags,

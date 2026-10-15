@@ -222,6 +222,138 @@ class IntegrityTests(unittest.TestCase):
                 actual = search.HardwareEvaluator(args)
             for key in ("DLC_SYN_DEBUG", "DLC_SYN_VERBOSE", "DLC_SYN_PROF_CYCLE"):
                 self.assertEqual(actual.environment.get(key), "0")
+            self.assertEqual(actual.environment.get("SPT_NOENV"), "1")
+
+    def test_process_title_preservation_overrides_an_inherited_disable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            evaluator = self.initialized_evaluator(Path(temp), {"SPT_NOENV": "0"})
+            log = Path(temp) / "child.log"
+            code = evaluator.command(
+                [sys.executable, "-c", "import os; print(os.environ.get('SPT_NOENV'))"],
+                log, 5)
+            self.assertEqual(code, 0)
+            self.assertEqual(log.read_text().strip(), "1")
+
+    def initialized_evaluator(self, root, inherited=None):
+        evaluator = self.evaluator(root)
+        args = SimpleNamespace(output=root / "output", kernel_root=root / "kernel",
+                               library=evaluator.library, device="4", profiling="on",
+                               original_policy=evaluator.policy, original_library=evaluator.library)
+        policy = args.kernel_root / "dlc_src/opt_flag_data/autotune_strategies.csv"
+        policy.parent.mkdir(parents=True)
+        policy.write_bytes(evaluator.original)
+        with patch.object(search.HardwareEvaluator, "source_identity", return_value={}), patch.dict(
+            "os.environ", inherited or {}, clear=True
+        ):
+            return search.HardwareEvaluator(args)
+
+    def run_observed_worker(self, root, flags, wrong_library=False):
+        evaluator = self.evaluator(root)
+        evaluator.args = SimpleNamespace(profiling="on", tuner_root=root,
+                                         model_config=root / "config.json", model=root / "model",
+                                         device="4")
+        evaluator.counter = 0
+        evaluator.environment = {
+            "DLC_SYN_DEBUG": "1", "DLC_SYN_VERBOSE": "1", "DLC_SYN_PROF_CYCLE": "1",
+            "DLC_VISIBLE_DEVICES": "4", "VLLM_USE_DLC_COL_MAJOR_MATMUL": "1",
+            "FIXTURE_SECRET": "not-for-the-receipt",
+        }
+        evaluator.install = lambda *args: None
+        process = root / "proc/42"
+        process.mkdir(parents=True)
+        (process / "stat").write_text("42 (worker) S 1 42\n")
+        info = evaluator.library.stat()
+        inode = info.st_ino + int(wrong_library)
+        (process / "maps").write_text(
+            f"0-1 r--p 0 {os.major(info.st_dev):x}:{os.minor(info.st_dev):x} "
+            f"{inode} {evaluator.library}\n")
+        (process / "environ").write_bytes(
+            b"\0".join((key + "=" + value).encode() for key, value in
+                        {**flags, "FIXTURE_SECRET": "not-for-the-receipt"}.items()) + b"\0")
+
+        def command(argv, log, timeout, observe=None):
+            log.write_text("EngineCore pid=42\n")
+            observe(42)
+            return 0
+
+        evaluator.command = command
+        with patch.object(search, "Path", side_effect=lambda path: root / "proc"
+                          if path == "/proc" else Path(path)):
+            evaluator.run(b"Test,X\na,candidate\n", "worker-probe")
+
+    def test_worker_environment_mismatch_records_only_five_whitelisted_keys(self):
+        expected = {"DLC_SYN_DEBUG": "1", "DLC_SYN_VERBOSE": "1", "DLC_SYN_PROF_CYCLE": "1",
+                    "DLC_VISIBLE_DEVICES": "4", "VLLM_USE_DLC_COL_MAJOR_MATMUL": "1"}
+        for key in (*expected, None):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                actual = {**expected, key: "different"} if key else {}
+                with self.assertRaisesRegex(search.IntegrityFailure, "Worker device, instrumentation or layout differs"):
+                    self.run_observed_worker(root, actual)
+                record = json.loads((root / "001-worker-probe/measurement.json").read_text())
+                self.assertEqual(record.get("worker_environment"), {
+                    "pid": 42, "expected": expected,
+                    "actual": {name: actual.get(name, "") for name in expected},
+                })
+                self.assertIsNone(record["exit_code"])
+                self.assertFalse(record["completed_32"])
+                self.assertNotIn("FIXTURE_SECRET", json.dumps(record))
+                self.assertNotIn("not-for-the-receipt", json.dumps(record))
+
+    def test_mapped_library_identity_mismatch_remains_fatal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with self.assertRaisesRegex(search.IntegrityFailure, "Worker mapped a different library identity"):
+                self.run_observed_worker(root, {}, wrong_library=True)
+            record = json.loads((root / "001-worker-probe/measurement.json").read_text())
+            self.assertNotIn("worker_environment", record)
+
+    @unittest.skipUnless(sys.platform == "linux" and importlib.util.find_spec("setproctitle"),
+                         "Linux /proc and setproctitle are required")
+    def test_real_process_rename_preserves_the_original_worker_check(self):
+        with tempfile.TemporaryDirectory() as temp:
+            evaluator = self.initialized_evaluator(Path(temp))
+            script = r'''
+import ast, json, os, re, types
+from pathlib import Path
+import setproctitle
+
+source = Path(__import__('sys').argv[1])
+tree = ast.parse(source.read_text())
+evaluator = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                 and node.name == 'HardwareEvaluator')
+run = next(node for node in evaluator.body if isinstance(node, ast.FunctionDef) and node.name == 'run')
+observe = next(node for node in ast.walk(run) if isinstance(node, ast.FunctionDef) and node.name == 'observe')
+keys = ('DLC_SYN_DEBUG', 'DLC_SYN_VERBOSE', 'DLC_SYN_PROF_CYCLE',
+        'DLC_VISIBLE_DEVICES', 'VLLM_USE_DLC_COL_MAJOR_MATMUL')
+expected = {key: os.environ[key] for key in keys}
+library = next(Path(parts[5]) for line in Path('/proc/self/maps').read_text().splitlines()
+               if len(parts := line.split()) >= 6 and parts[5].endswith('/libc.so.6'))
+class IntegrityFailure(Exception):
+    pass
+loaded = {}
+namespace = {
+    'loaded': loaded, 'result': {}, 'info': library.stat(), 're': re, 'Path': Path, 'os': os,
+    'log': types.SimpleNamespace(exists=lambda: True,
+                                 read_text=lambda **kw: 'EngineCore pid=' + str(os.getpid())),
+    'self': types.SimpleNamespace(library=library, environment=expected, current_library='cpu-fixture'),
+    'IntegrityFailure': IntegrityFailure,
+}
+exec(compile(ast.Module(body=[observe], type_ignores=[]), str(source), 'exec'), namespace)
+setproctitle.setproctitle('VLLM::EngineCore')
+namespace['observe'](os.getpgrp())
+assert loaded['flags'] == expected == {key: os.environ[key] for key in keys}
+print(json.dumps({'checked_flags': loaded['flags'], 'device_initialized': False}))
+'''
+            # Start with only known non-secret values, not the inherited environment.
+            keys = ("SPT_NOENV", "DLC_SYN_DEBUG", "DLC_SYN_VERBOSE", "DLC_SYN_PROF_CYCLE",
+                    "DLC_VISIBLE_DEVICES", "VLLM_USE_DLC_COL_MAJOR_MATMUL")
+            environment = {key: evaluator.environment[key] for key in keys if key in evaluator.environment}
+            environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            result = subprocess.run([sys.executable, "-c", script, search.__file__],
+                                    env=environment, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(json.loads(result.stdout)["device_initialized"])
 
     def evaluator(self, root):
         evaluator = search.HardwareEvaluator.__new__(search.HardwareEvaluator)
