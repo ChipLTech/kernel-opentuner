@@ -602,17 +602,19 @@ class HardwareEvaluator:
         key = policy_identity(data)
         if key not in self.cache:
             root = str(self.args.kernel_root)
-            for name, command in (
-                ('cmake', ['cmake', '-S', root, '-B', root + '/build', '-DCMAKE_BUILD_TYPE=Release']),
-                ('build', ['ninja', '-C', root + '/build', '-j' + str(self.args.build_jobs)]),
-                ('stage', ['cmake', '--install', root + '/build', '--prefix', str(directory / 'install')]),
-            ):
-                if self.command(command, directory / (name + '.log'), 900):
-                    raise RuntimeError('Candidate build failed: ' + name)
-            self.assert_integrity()
-            compiled = (directory / 'install/lib/libcustom_dlc_perf_lib.so').read_bytes()
-            (directory / 'library.so').write_bytes(compiled)
-            self.cache[key] = directory / 'library.so'
+            # Keep the reusable library, not a second full install tree per policy.
+            with tempfile.TemporaryDirectory(prefix='install-', dir=directory) as staging:
+                for name, command in (
+                    ('cmake', ['cmake', '-S', root, '-B', root + '/build', '-DCMAKE_BUILD_TYPE=Release']),
+                    ('build', ['ninja', '-C', root + '/build', '-j' + str(self.args.build_jobs)]),
+                    ('stage', ['cmake', '--install', root + '/build', '--prefix', staging]),
+                ):
+                    if self.command(command, directory / (name + '.log'), 900):
+                        raise RuntimeError('Candidate build failed: ' + name)
+                self.assert_integrity()
+                compiled = (Path(staging) / 'lib/libcustom_dlc_perf_lib.so').read_bytes()
+                (directory / 'library.so').write_bytes(compiled)
+                self.cache[key] = directory / 'library.so'
         self.assert_integrity()
         atomic_bytes(self.library, self.cache[key].read_bytes())
         self.current_library = digest(self.library.read_bytes())

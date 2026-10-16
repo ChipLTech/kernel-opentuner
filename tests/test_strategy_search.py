@@ -524,6 +524,165 @@ class StageTests(unittest.TestCase):
             self.assertFalse(json.loads((root / "r4/acceptance.json").read_text())["passed"])
 
 
+@unittest.skipIf(search is None, "R4 module pending")
+class InstallStorageTests(unittest.TestCase):
+    def evaluator(self, root, failure=None, missing_library=False, external_change=False):
+        evaluator = search.HardwareEvaluator.__new__(search.HardwareEvaluator)
+        evaluator.args = SimpleNamespace(kernel_root=root / "kernel", build_jobs=2)
+        evaluator.out = root
+        evaluator.policy, evaluator.library = root / "policy.csv", root / "active.so"
+        evaluator.original = b"Test,X\na,original\n"
+        evaluator.original_library = b"original-library"
+        evaluator.policy.write_bytes(evaluator.original)
+        evaluator.library.write_bytes(evaluator.original_library)
+        (root / "original.csv").write_bytes(evaluator.original)
+        (root / "original.so").write_bytes(evaluator.original_library)
+        evaluator.expected = sha(evaluator.original)
+        evaluator.current_library = sha(evaluator.original_library)
+        evaluator.cache, evaluator.sources = {}, {}
+        evaluator.source_identity = lambda: {}
+        calls = []
+
+        def command(argv, log, timeout):
+            calls.append(argv)
+            log.write_text("fixture " + log.stem + "\n")
+            if log.stem == "stage":
+                prefix = Path(argv[-1])
+                (prefix / "include").mkdir(parents=True)
+                (prefix / "include/kernel.h").write_text("fixture header\n")
+                if not missing_library:
+                    library = prefix / "lib/libcustom_dlc_perf_lib.so"
+                    library.parent.mkdir()
+                    library.write_bytes(b"compiled-" + evaluator.policy.read_bytes())
+                if external_change:
+                    evaluator.policy.write_bytes(b"external-policy")
+            return int(log.stem == failure)
+
+        evaluator.command = command
+        return evaluator, calls
+
+    def assert_no_install_tree(self, directory):
+        self.assertFalse(any(path.name.startswith("install") for path in directory.iterdir()))
+
+    def test_success_retains_one_cached_library_and_logs_not_install_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, calls = self.evaluator(root)
+            directory = root / "001-candidate"
+            directory.mkdir()
+            policy = b"Test,X\na,candidate\n"
+            evaluator.install(policy, directory)
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(evaluator.library.read_bytes(), b"compiled-" + policy)
+            self.assertEqual(evaluator.cache[search.policy_identity(policy)], directory / "library.so")
+            self.assertEqual(list(directory.rglob("*.so")), [directory / "library.so"])
+            self.assert_no_install_tree(directory)
+            for name in ("cmake", "build", "stage"):
+                self.assertTrue((directory / (name + ".log")).is_file())
+            self.assertEqual((root / "original.so").read_bytes(), evaluator.original_library)
+
+    def test_repeat_reuses_cached_library_after_switching_policy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, calls = self.evaluator(root)
+            first, second = b"Test,X\na,first\n", b"Test,X\na,second\n"
+            for number, data in enumerate((first, second, first), 1):
+                directory = root / str(number)
+                directory.mkdir()
+                evaluator.install(data, directory)
+                self.assert_no_install_tree(directory)
+            self.assertEqual(len(calls), 6)
+            self.assertEqual(len(evaluator.cache), 2)
+            self.assertEqual(evaluator.library.read_bytes(), b"compiled-" + first)
+            self.assertFalse((root / "3/library.so").exists())
+
+    def test_failed_stage_removes_partial_install_and_preserves_logs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, _ = self.evaluator(root, failure="stage")
+            directory = root / "failed"
+            directory.mkdir()
+            with self.assertRaisesRegex(RuntimeError, "Candidate build failed: stage"):
+                evaluator.install(b"Test,X\na,candidate\n", directory)
+            self.assert_no_install_tree(directory)
+            self.assertTrue((directory / "stage.log").exists())
+            self.assertFalse(evaluator.cache)
+            self.assertEqual(evaluator.library.read_bytes(), evaluator.original_library)
+
+    def test_configure_and_build_failures_keep_logs_without_install_tree(self):
+        for failure in ("cmake", "build"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                evaluator, _ = self.evaluator(root, failure=failure)
+                directory = root / "failed"
+                directory.mkdir()
+                with self.assertRaisesRegex(RuntimeError, "Candidate build failed: " + failure):
+                    evaluator.install(b"Test,X\na,candidate\n", directory)
+                self.assert_no_install_tree(directory)
+                self.assertTrue((directory / (failure + ".log")).exists())
+                self.assertFalse(evaluator.cache)
+
+    def test_missing_staged_library_still_reclaims_install_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, _ = self.evaluator(root, missing_library=True)
+            directory = root / "missing"
+            directory.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                evaluator.install(b"Test,X\na,candidate\n", directory)
+            self.assert_no_install_tree(directory)
+            self.assertTrue((directory / "stage.log").exists())
+            self.assertFalse(evaluator.cache)
+
+    def test_cache_write_enospc_reclaims_install_without_publishing_cache(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, _ = self.evaluator(root)
+            directory = root / "full"
+            directory.mkdir()
+            write = Path.write_bytes
+
+            def fail_cache(path, data):
+                if path == directory / "library.so":
+                    raise OSError(28, "No space left on device")
+                return write(path, data)
+
+            with patch.object(Path, "write_bytes", fail_cache), self.assertRaises(OSError) as failure:
+                evaluator.install(b"Test,X\na,candidate\n", directory)
+            self.assertEqual(failure.exception.errno, 28)
+            self.assert_no_install_tree(directory)
+            self.assertFalse(evaluator.cache)
+            self.assertEqual(evaluator.library.read_bytes(), evaluator.original_library)
+            self.assertTrue((directory / "stage.log").exists())
+
+    def test_integrity_failure_preserves_foreign_policy_and_reclaims_install(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, _ = self.evaluator(root, external_change=True)
+            directory = root / "foreign"
+            directory.mkdir()
+            with self.assertRaises(search.IntegrityFailure):
+                evaluator.install(b"Test,X\na,candidate\n", directory)
+            self.assert_no_install_tree(directory)
+            self.assertEqual(evaluator.policy.read_bytes(), b"external-policy")
+            self.assertTrue((root / "unexpected-policy.csv").exists())
+            self.assertFalse(evaluator.cache)
+
+    def test_rollback_and_original_evidence_survive_install_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evaluator, _ = self.evaluator(root)
+            directory = root / "candidate"
+            directory.mkdir()
+            evaluator.install(b"Test,X\na,candidate\n", directory)
+            evaluator.restore()
+            self.assert_no_install_tree(directory)
+            self.assertEqual(evaluator.policy.read_bytes(), evaluator.original)
+            self.assertEqual(evaluator.library.read_bytes(), evaluator.original_library)
+            self.assertEqual((root / "original.so").read_bytes(), evaluator.original_library)
+            self.assertTrue((directory / "library.so").is_file())
+
+
 def sha(data):
     return search.digest(data)
 
